@@ -194,6 +194,7 @@
         </div>
     </div>
 
+    <script src="assets/config.js"></script>
     <script>
         // Check backend status on load
         document.addEventListener('DOMContentLoaded', () => {
@@ -202,9 +203,7 @@
 
         async function checkBackendStatus() {
             const statusEl = document.getElementById('backend-status');
-            const backendUrl = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' 
-                ? 'http://localhost:5000'
-                : 'https://docugraph-api.up.railway.app'; // Update with your Railway URL
+            const backendUrl = window.CONFIG.getBackendURL();
 
             try {
                 const response = await fetch(`${backendUrl}/health`, { 
@@ -214,8 +213,8 @@
                 statusEl.innerHTML = '✅ <strong>Backend Online</strong> - Ready to analyze documents';
                 statusEl.className = 'backend-status online';
             } catch (error) {
-                if (window.location.hostname !== 'localhost') {
-                    statusEl.innerHTML = '⚠️ <strong>Backend Offline</strong> - Deploying to Railway.app<br><small>Production backend URL not configured yet</small>';
+                if (window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+                    statusEl.innerHTML = '⚠️ <strong>Backend Offline</strong> - See <a href="RAILWAY_DEPLOYMENT.md" style="color: #667eea;">deployment guide</a><br><small>Update backend URL in assets/config.js after Railway deployment</small>';
                 } else {
                     statusEl.innerHTML = '❌ <strong>Backend Offline</strong> - Run: <code>python backend/app.py</code>';
                 }

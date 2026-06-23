@@ -69,12 +69,18 @@
 <body class="loading">
 
 <!-- Backend Configuration -->
+<script src="assets/config.js"></script>
 <script>
-  window.BACKEND_URL = 'https://docugraph.site:5000';
-  if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
-    window.BACKEND_URL = 'http://localhost:5000';
-  }
+  // Backend configuration with auto-detection
+  // For GitHub Pages: Update the backend URL in assets/config.js after deploying to Railway
   window.ANALYSIS_MODE = 'cnn-only';
+  
+  // Show warning if backend is not configured for production
+  if (window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+    if (window.CONFIG.BACKEND_URL_PRODUCTION === 'https://docugraph-cnn-api.up.railway.app') {
+      console.warn('⚠️ Backend URL not configured. See RAILWAY_DEPLOYMENT.md for setup.');
+    }
+  }
 </script>
 
 <div class="auth-loading"><div class="spinner"></div></div>
