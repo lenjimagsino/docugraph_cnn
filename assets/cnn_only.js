@@ -44,7 +44,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Browse button
   if (browseBtn) {
-    browseBtn.addEventListener('click', () => fileInput.click());
+    browseBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      fileInput.click();
+    });
   }
 
   // File input change
