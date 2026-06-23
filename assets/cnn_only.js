@@ -81,7 +81,9 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     });
 
-    dropzone.addEventListener('click', () => {
+    dropzone.addEventListener('click', (e) => {
+      // Don't trigger if clicking on a button inside the dropzone
+      if (e.target.closest('button')) return;
       fileInput.click();
     });
   }
