@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DOCUGRAPH CNN-Only Analysis</title>
+    <link rel="icon" type="image/png" href="assets/logo.png">
+    <link rel="stylesheet" href="assets/style.css">
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0;
+            padding: 20px;
+        }
+        .container {
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            padding: 60px 40px;
+            text-align: center;
+            max-width: 600px;
+        }
+        .logo {
+            width: 80px;
+            height: 80px;
+            margin: 0 auto 30px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 40px;
+            font-weight: bold;
+        }
+        h1 {
+            font-size: 32px;
+            margin: 20px 0 10px;
+            color: #333;
+        }
+        .subtitle {
+            font-size: 18px;
+            color: #666;
+            margin-bottom: 30px;
+        }
+        .status {
+            display: inline-block;
+            padding: 10px 20px;
+            border-radius: 8px;
+            margin-bottom: 30px;
+            font-size: 14px;
+            font-weight: 600;
+        }
+        .status.online {
+            background: #d4edda;
+            color: #155724;
+        }
+        .status.offline {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        .buttons {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 30px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+        .btn {
+            padding: 14px 28px;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            border: none;
+            cursor: pointer;
+            transition: all 0.3s;
+            text-decoration: none;
+            display: inline-block;
+        }
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.3);
+        }
+        .btn-secondary {
+            background: #f0f0f0;
+            color: #333;
+            border: 2px solid #ddd;
+        }
+        .btn-secondary:hover {
+            background: #e0e0e0;
+        }
+        .info {
+            background: #f8f9fa;
+            border-left: 4px solid #667eea;
+            padding: 20px;
+            text-align: left;
+            border-radius: 8px;
+            margin-top: 30px;
+            font-size: 14px;
+        }
+        .info h3 {
+            margin-top: 0;
+            color: #333;
+        }
+        .info p {
+            margin: 8px 0;
+            color: #666;
+        }
+        .info code {
+            background: #e9ecef;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: monospace;
+            color: #d63384;
+        }
+        .badge {
+            display: inline-block;
+            background: linear-gradient(120deg, #7c3aed, #ec4899);
+            color: white;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 700;
+            margin-left: 8px;
+        }
+        .footer {
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid #eee;
+            font-size: 13px;
+            color: #999;
+        }
+        .footer a {
+            color: #667eea;
+            text-decoration: none;
+        }
+        .footer a:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="logo">📊</div>
+        <h1>DOCUGRAPH CNN-Only <span class="badge">Analysis</span></h1>
+        <p class="subtitle">Document Layout Analysis using CNN Features</p>
+
+        <div id="status-indicator" class="status online">✓ System Online</div>
+
+        <div class="buttons">
+            <a href="try_cnn.html" class="btn btn-primary">Start Analysis</a>
+            <a href="#info" class="btn btn-secondary">Learn More</a>
+        </div>
+
+        <div id="info" class="info">
+            <h3>📋 What is This?</h3>
+            <p>DOCUGRAPH CNN-Only is a baseline document analysis system that uses pure Convolutional Neural Networks (CNN) without Graph Neural Network components. It provides:</p>
+            <ul style="margin: 10px 0; padding-left: 20px;">
+                <li><strong>Layout Detection:</strong> Identifies document structure and regions</li>
+                <li><strong>Element Classification:</strong> Categorizes headers, text, tables, and figures</li>
+                <li><strong>Bounding Box Generation:</strong> Precise region localization</li>
+                <li><strong>Confidence Scoring:</strong> Reliability metrics for each prediction</li>
+            </ul>
+
+            <h3 style="margin-top: 20px;">🚀 Getting Started</h3>
+            <p>1. Click <strong>"Start Analysis"</strong> to open the analysis interface</p>
+            <p>2. Upload a document image or PDF</p>
+            <p>3. Click <strong>"Analyze Layout"</strong> to process</p>
+            <p>4. View results with visualized bounding boxes</p>
+
+            <h3 style="margin-top: 20px;">⚙️ Backend Status</h3>
+            <p id="backend-status">Checking backend connection...</p>
+            <p style="font-size: 12px; color: #999; margin-top: 10px;">
+                ℹ️ Backend must be running for analysis to work.
+            </p>
+        </div>
+
+        <div class="footer">
+            <p>
+                <a href="https://github.com/lenjimagsino/docugraph_cnn" target="_blank">View on GitHub</a> •
+                <a href="CNN_ONLY_ANALYSIS.md" target="_blank">Documentation</a> •
+                <a href="comparison.html">CNN vs CNN+GNN Comparison</a>
+            </p>
+            <p>© 2026 DOCUGRAPH Project. All rights reserved.</p>
+        </div>
+    </div>
+
+    <script>
+        // Check backend status on load
+        document.addEventListener('DOMContentLoaded', () => {
+            checkBackendStatus();
+        });
+
+        async function checkBackendStatus() {
+            const statusEl = document.getElementById('backend-status');
+            const backendUrl = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' 
+                ? 'http://localhost:5000'
+                : 'https://docugraph-api.up.railway.app'; // Update with your Railway URL
+
+            try {
+                const response = await fetch(`${backendUrl}/health`, { 
+                    method: 'GET',
+                    mode: 'no-cors'
+                });
+                statusEl.innerHTML = '✅ <strong>Backend Online</strong> - Ready to analyze documents';
+                statusEl.className = 'backend-status online';
+            } catch (error) {
+                if (window.location.hostname !== 'localhost') {
+                    statusEl.innerHTML = '⚠️ <strong>Backend Offline</strong> - Deploying to Railway.app<br><small>Production backend URL not configured yet</small>';
+                } else {
+                    statusEl.innerHTML = '❌ <strong>Backend Offline</strong> - Run: <code>python backend/app.py</code>';
+                }
+                statusEl.className = 'backend-status offline';
+            }
+        }
+    </script>
+</body>
+</html>
