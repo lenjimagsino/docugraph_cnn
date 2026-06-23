@@ -178,7 +178,7 @@ async function performCNNAnalysis() {
   updateProgressStatus(0);
 
   const formData = new FormData();
-  formData.append('file', currentFile);
+  formData.append('image', currentFile);  // Backend expects 'image' field
   formData.append('mode', 'cnn-only');
 
   // Simulate progress updates
@@ -187,18 +187,26 @@ async function performCNNAnalysis() {
   }, 500);
 
   try {
+    // Create fetch with 30-second timeout
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30000);
+
+    console.log('🔄 Sending to backend:', window.BACKEND_URL);
     const response = await fetch(`${window.BACKEND_URL}/api/analyze`, {
       method: 'POST',
-      body: formData
+      body: formData,
+      signal: controller.signal
     });
 
+    clearTimeout(timeoutId);
     clearInterval(progressInterval);
 
     if (!response.ok) {
-      throw new Error(`Analysis failed: ${response.statusText}`);
+      throw new Error(`Analysis failed: ${response.status} ${response.statusText}`);
     }
 
     const data = await response.json();
+    console.log('✓ Backend response:', data);
     
     if (!data.success && data.error) {
       throw new Error(data.error);
@@ -223,9 +231,18 @@ async function performCNNAnalysis() {
     sessionStorage.setItem('cnnAnalysisResults', JSON.stringify(data));
 
   } catch (error) {
-    console.error('Analysis error:', error);
+    console.error('❌ Analysis error:', error);
     clearInterval(progressInterval);
-    alert('Error during analysis: ' + error.message);
+    
+    // Better error messaging
+    let errorMsg = error.message;
+    if (error.name === 'AbortError') {
+      errorMsg = 'Request timeout (>30s). Backend may be unavailable or processing is taking too long.';
+    } else if (errorMsg.includes('Failed to fetch')) {
+      errorMsg = `Cannot connect to backend at ${window.BACKEND_URL}. Make sure the backend server is running.`;
+    }
+    
+    alert('⚠️ Analysis Error:\n\n' + errorMsg + '\n\n✓ Tip: Start the backend with:\npython backend/app.py');
     showState('initial');
   }
 }

@@ -930,6 +930,40 @@ def detect_connectors():
         return jsonify({'error': str(e)}), 500
 
 
+# ===== Frontend-Compatible Wrapper Endpoints =====
+@app.route('/api/analyze', methods=['POST'])
+def analyze():
+    """
+    Frontend-compatible analyze endpoint
+    Wraps the layout analysis and returns frontend-expected format
+    """
+    try:
+        if 'image' not in request.files:
+            return jsonify({'success': False, 'error': 'No image provided'}), 400
+        
+        image_file = request.files['image']
+        image_bytes = image_file.read()
+        image_array = cv2.imdecode(
+            np.frombuffer(image_bytes, np.uint8),
+            cv2.IMREAD_COLOR
+        )
+        
+        if image_array is None:
+            return jsonify({'success': False, 'error': 'Invalid image'}), 400
+        
+        # Analyze layout
+        result = layout_analyzer.analyze_layout(image_array)
+        
+        # Ensure success flag
+        if 'success' not in result:
+            result['success'] = True
+        
+        return jsonify(result)
+    
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @app.errorhandler(404)
 def not_found(error):
     """Handle 404 errors"""
