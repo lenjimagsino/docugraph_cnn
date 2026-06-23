@@ -464,6 +464,12 @@
   </div>
 </main>
 
+<script>
+// Remove loading state when page is ready
+document.addEventListener('DOMContentLoaded', () => {
+  document.body.classList.remove('loading');
+});
+</script>
 <script src="assets/main.js"></script>
 <script src="assets/cnn_only.js"></script>
 </body>
