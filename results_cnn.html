@@ -1,0 +1,470 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#ffffff">
+<title>CNN-Only Analysis Results — DOCUGRAPH</title>
+<link rel="icon" type="image/png" href="assets/logo.png">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="stylesheet" href="assets/style.css">
+<style>
+  main { padding-top: 80px; padding-bottom: 60px; }
+  
+  .results-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 48px;
+    margin-top: 48px;
+  }
+
+  .cnn-badge { display: inline-block; background: linear-gradient(120deg, #7c3aed, #ec4899); color: white; padding: 4px 10px; border-radius: 12px; font-size: 11px; font-weight: 700; }
+
+  .hierarchy-panel {
+    background: var(--white);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-lg);
+    padding: 32px;
+    box-shadow: var(--shadow-md);
+    overflow: auto;
+    max-height: 800px;
+  }
+
+  .hierarchy-panel h3 {
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 18px;
+    color: var(--ink-900);
+    margin-bottom: 20px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .results-content-wrapper {
+    display: grid;
+    grid-template-columns: 1fr 1.2fr;
+    gap: 48px;
+    margin-top: 48px;
+  }
+
+  .doc-column {
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+  }
+  
+  .result-doc {
+    background: var(--white);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-lg);
+    padding: 32px;
+    display: flex;
+    flex-direction: column;
+    box-shadow: var(--shadow-md);
+    position: relative;
+  }
+  
+  .result-doc h3 {
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 18px;
+    color: var(--ink-900);
+    margin-bottom: 20px;
+  }
+  
+  .doc-render {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 3/4;
+    background: radial-gradient(ellipse at bottom, var(--green-50), var(--white));
+    border-radius: var(--radius-md);
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 24px;
+    border: 1px solid var(--line);
+    box-shadow: var(--shadow-md);
+  }
+  
+  .doc-render img {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+  }
+  
+  .bbox-container {
+    position: absolute;
+    inset: 0;
+  }
+  
+  .bbox {
+    position: absolute;
+    border: 2px solid;
+    padding: 4px 8px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 600;
+    pointer-events: none;
+    backdrop-filter: blur(2px);
+  }
+  
+  .bbox.header  { border-color: var(--green-700); background: rgba(28,122,57,0.15); color: var(--green-900); }
+  .bbox.para    { border-color: var(--green-500); background: rgba(62,200,92,0.12); color: var(--green-700); }
+  .bbox.table   { border-color: #d97706; background: rgba(217,119,6,0.12); color: #92400e; }
+  .bbox.figure  { border-color: #7c3aed; background: rgba(124,58,237,0.12); color: #5b21b6; }
+  .bbox.shape   { border-color: #ec4899; background: rgba(236,72,153,0.12); color: #be185d; }
+
+  .cnn-analysis-panel {
+    background: linear-gradient(135deg, #f3e8ff 0%, #fce7f3 100%);
+    border: 1px solid #e9d5ff;
+    border-radius: var(--radius-lg);
+    padding: 24px;
+    margin-top: 24px;
+  }
+
+  .cnn-analysis-panel h4 {
+    color: #6b21a8;
+    margin: 0 0 16px 0;
+    font-size: 14px;
+    font-weight: 600;
+  }
+
+  .cnn-metrics {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 12px;
+  }
+
+  .metric-item {
+    background: white;
+    padding: 12px;
+    border-radius: 8px;
+    border-left: 4px solid #7c3aed;
+  }
+
+  .metric-label {
+    font-size: 11px;
+    color: #9333ea;
+    font-weight: 600;
+    text-transform: uppercase;
+  }
+
+  .metric-value {
+    font-size: 18px;
+    font-weight: 700;
+    color: #6b21a8;
+    margin-top: 4px;
+  }
+
+  .comparison-section {
+    background: var(--white);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-lg);
+    padding: 32px;
+    box-shadow: var(--shadow-md);
+    margin-top: 24px;
+  }
+
+  .comparison-section h3 {
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 18px;
+    color: var(--ink-900);
+    margin-bottom: 20px;
+  }
+
+  .comparison-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+
+  .comparison-table th {
+    background: var(--off);
+    padding: 12px;
+    text-align: left;
+    font-weight: 600;
+    color: var(--ink-900);
+    border-bottom: 2px solid var(--line);
+  }
+
+  .comparison-table td {
+    padding: 12px;
+    border-bottom: 1px solid var(--line);
+    color: var(--ink-700);
+  }
+
+  .comparison-table tr:hover {
+    background: var(--off);
+  }
+
+  .comparison-value-cnn {
+    color: #7c3aed;
+    font-weight: 600;
+  }
+
+  .comparison-value-gnn {
+    color: var(--green-700);
+    font-weight: 600;
+  }
+
+  .improvement-badge {
+    display: inline-block;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+  }
+
+  .improvement-better {
+    background: #dcfce7;
+    color: #166534;
+  }
+
+  .improvement-worse {
+    background: #fee2e2;
+    color: #991b1b;
+  }
+
+  @media (max-width: 900px) {
+    .results-content-wrapper {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
+</head>
+<body class="loading">
+
+<!-- Backend Configuration -->
+<script>
+  window.BACKEND_URL = 'https://docugraph.site:5000';
+  if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+    window.BACKEND_URL = 'http://localhost:5000';
+  }
+  window.ANALYSIS_MODE = 'cnn-only';
+</script>
+
+<div class="auth-loading"><div class="spinner"></div></div>
+
+<!-- ===== NAVBAR ===== -->
+<header class="nav">
+  <div class="nav-inner">
+    <a href="index.html" class="brand">
+      <img src="assets/logo.png" alt="DOCUGRAPH">
+      <span><b>DOCU</b><em>GRAPH</em></span>
+    </a>
+    <nav>
+      <ul class="nav-links">
+        <li><a href="dashboard.html">Dashboard</a></li>
+        <li><a href="try.html">DOCUGRAPH (CNN+GNN)</a></li>
+        <li><a href="try_cnn.html">CNN-Only <span class="cnn-badge">Comparison</span></a></li>
+        <li><a href="results.html" class="active">Results</a></li>
+        <li><a href="index.html#about">Research</a></li>
+      </ul>
+    </nav>
+    <div style="display:flex; align-items:center; gap:10px;">
+      <a href="try_cnn.html" class="btn btn-primary" style="padding:8px 16px; font-size:13px;">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+        New Analysis
+      </a>
+      <button class="nav-toggle" aria-label="Toggle navigation"><span></span></button>
+    </div>
+  </div>
+</header>
+
+<!-- ===== RESULTS PAGE (CNN-ONLY) ===== -->
+<main class="page-wrap">
+  <div class="wrap">
+
+    <div class="page-head reveal">
+      <div>
+        <span class="s-tag" style="margin-bottom:14px">CNN-Only Results <span class="cnn-badge">Analysis Complete</span></span>
+        <h1>Analysis Results</h1>
+        <p>CNN-based document layout analysis with feature extraction and OCR text recognition.</p>
+      </div>
+      <a href="comparison.html" class="btn btn-primary">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+        Compare with CNN+GNN
+      </a>
+    </div>
+
+    <!-- CNN Analysis Insights -->
+    <div class="results-grid reveal">
+      <div class="cnn-analysis-panel">
+        <h4>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline; margin-right:8px; vertical-align:-2px;"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
+          CNN-Only Analysis Overview
+        </h4>
+        <div class="cnn-metrics">
+          <div class="metric-item">
+            <div class="metric-label">Model Type</div>
+            <div class="metric-value">Detectron2</div>
+          </div>
+          <div class="metric-item">
+            <div class="metric-label">Backbone</div>
+            <div class="metric-value">ResNest50</div>
+          </div>
+          <div class="metric-item">
+            <div class="metric-label">Regions Found</div>
+            <div class="metric-value" id="cnn-regions">0</div>
+          </div>
+          <div class="metric-item">
+            <div class="metric-label">Avg Confidence</div>
+            <div class="metric-value" id="cnn-avg-conf">0%</div>
+          </div>
+          <div class="metric-item">
+            <div class="metric-label">Processing Time</div>
+            <div class="metric-value" id="cnn-time">0s</div>
+          </div>
+          <div class="metric-item">
+            <div class="metric-label">Feature Maps</div>
+            <div class="metric-value" id="cnn-features">0</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Document & Results -->
+    <div class="results-content-wrapper reveal">
+      <div class="doc-column">
+        <div class="result-doc">
+          <h3>Original Document</h3>
+          <div class="doc-render">
+            <img id="input-image" src="" alt="Input document" style="display:none;">
+            <div style="text-align:center; color:var(--ink-400);">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="width:40px; height:40px; margin:0 auto 12px;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+              <p>Input document</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="result-doc">
+          <h3>Detected Layout (CNN Features)</h3>
+          <div class="doc-render">
+            <div id="bbox-container" style="position:absolute; inset:0;"></div>
+            <img id="canvas-image" src="" alt="Layout analysis" style="display:none; position:absolute; inset:0; max-width:100%; max-height:100%; object-fit:contain;">
+            <div style="text-align:center; color:var(--ink-400); position:relative; z-index:1;">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="width:40px; height:40px; margin:0 auto 12px;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+              <p>CNN layout detection</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="doc-column">
+        <div class="result-doc">
+          <h3>Extracted Text (OCR)</h3>
+          <div style="background:var(--off); border:1px solid var(--line); border-radius:8px; padding:16px; max-height:600px; overflow-y:auto; font-family:var(--font-mono); font-size:12px; color:var(--ink-700); line-height:1.6; white-space:pre-wrap; word-break:break-word;">
+            <div id="extracted-text" style="color:var(--ink-500); text-align:center;">Text content loading...</div>
+          </div>
+        </div>
+
+        <div class="result-doc">
+          <h3>Analysis Summary</h3>
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px;">
+            <div style="padding:12px; background:var(--off); border-radius:8px; border-left:4px solid var(--green-600);">
+              <div style="font-size:11px; color:var(--ink-600); text-transform:uppercase; font-weight:600;">Total Regions</div>
+              <div style="font-size:24px; font-weight:700; color:var(--green-700); margin-top:4px;" id="total-regions">0</div>
+            </div>
+            <div style="padding:12px; background:var(--off); border-radius:8px; border-left:4px solid #7c3aed;">
+              <div style="font-size:11px; color:var(--ink-600); text-transform:uppercase; font-weight:600;">Avg CNN Confidence</div>
+              <div style="font-size:24px; font-weight:700; color:#7c3aed; margin-top:4px;" id="avg-confidence">0%</div>
+            </div>
+            <div style="padding:12px; background:var(--off); border-radius:8px; border-left:4px solid #d97706;">
+              <div style="font-size:11px; color:var(--ink-600); text-transform:uppercase; font-weight:600;">Headers</div>
+              <div style="font-size:24px; font-weight:700; color:#d97706; margin-top:4px;" id="header-count">0</div>
+            </div>
+            <div style="padding:12px; background:var(--off); border-radius:8px; border-left:4px solid #06b6d4;">
+              <div style="font-size:11px; color:var(--ink-600); text-transform:uppercase; font-weight:600;">Paragraphs</div>
+              <div style="font-size:24px; font-weight:700; color:#06b6d4; margin-top:4px;" id="para-count">0</div>
+            </div>
+            <div style="padding:12px; background:var(--off); border-radius:8px; border-left:4px solid #ec4899;">
+              <div style="font-size:11px; color:var(--ink-600); text-transform:uppercase; font-weight:600;">Tables/Figures</div>
+              <div style="font-size:24px; font-weight:700; color:#ec4899; margin-top:4px;" id="table-count">0</div>
+            </div>
+            <div style="padding:12px; background:var(--off); border-radius:8px; border-left:4px solid #8b5cf6;">
+              <div style="font-size:11px; color:var(--ink-600); text-transform:uppercase; font-weight:600;">Analysis Time</div>
+              <div style="font-size:18px; font-weight:700; color:#8b5cf6; margin-top:4px;" id="analysis-time">0ms</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Comparison Section -->
+    <div class="comparison-section reveal">
+      <h3>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline; margin-right:8px; vertical-align:-3px;"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+        CNN vs CNN+GNN Comparison
+      </h3>
+      <div style="overflow-x:auto;">
+        <table class="comparison-table">
+          <thead>
+            <tr>
+              <th>Metric</th>
+              <th>CNN-Only</th>
+              <th>CNN+GNN (DOCUGRAPH)</th>
+              <th>Improvement</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Average Confidence</strong></td>
+              <td class="comparison-value-cnn" id="cmp-conf-cnn">N/A</td>
+              <td class="comparison-value-gnn" id="cmp-conf-gnn">N/A</td>
+              <td><span class="improvement-badge improvement-better" id="cmp-conf-badge">Load data</span></td>
+            </tr>
+            <tr>
+              <td><strong>Regions Detected</strong></td>
+              <td class="comparison-value-cnn" id="cmp-regions-cnn">N/A</td>
+              <td class="comparison-value-gnn" id="cmp-regions-gnn">N/A</td>
+              <td><span class="improvement-badge improvement-better" id="cmp-regions-badge">Load data</span></td>
+            </tr>
+            <tr>
+              <td><strong>Layout Accuracy</strong></td>
+              <td class="comparison-value-cnn" id="cmp-accuracy-cnn">N/A</td>
+              <td class="comparison-value-gnn" id="cmp-accuracy-gnn">N/A</td>
+              <td><span class="improvement-badge improvement-better" id="cmp-accuracy-badge">Load data</span></td>
+            </tr>
+            <tr>
+              <td><strong>Processing Time</strong></td>
+              <td class="comparison-value-cnn" id="cmp-time-cnn">N/A</td>
+              <td class="comparison-value-gnn" id="cmp-time-gnn">N/A</td>
+              <td><span class="improvement-badge improvement-better" id="cmp-time-badge">Load data</span></td>
+            </tr>
+            <tr>
+              <td><strong>OCR Accuracy</strong></td>
+              <td class="comparison-value-cnn" id="cmp-ocr-cnn">N/A</td>
+              <td class="comparison-value-gnn" id="cmp-ocr-gnn">N/A</td>
+              <td><span class="improvement-badge improvement-better" id="cmp-ocr-badge">Load data</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Action Buttons -->
+    <div class="btn-row reveal" style="margin-top:48px; justify-content:center; gap:12px;">
+      <button class="btn btn-primary" id="download-results-btn">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+        Download Results
+      </button>
+      <a href="comparison.html" class="btn btn-primary">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+        View Full Comparison
+      </a>
+      <a href="try_cnn.html" class="btn btn-ghost">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+        New Analysis
+      </a>
+    </div>
+
+  </div>
+</main>
+
+<script src="assets/main.js"></script>
+<script src="assets/cnn_only.js"></script>
+</body>
+</html>

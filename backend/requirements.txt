@@ -1,0 +1,29 @@
+# Core Dependencies (Required)
+flask>=3.0.0
+flask-cors>=4.0.0
+python-dotenv>=1.0.0
+opencv-python>=4.8.0
+pillow>=10.0.0
+numpy>=1.24.0
+scipy>=1.11.0
+scikit-learn>=1.3.0
+requests>=2.31.0
+python-multipart>=0.0.6
+gunicorn>=21.2.0
+transformers>=4.33.0
+nltk>=3.8
+
+# OCR Engines (Optional - one of these required for word-level OCR)
+easyocr>=1.7.0
+pytesseract>=0.3.10
+
+# PyTorch (Optional - uncomment for GPU acceleration)
+# torch>=2.0.0
+# torchvision>=0.15.0
+
+# Advanced Layout Analysis
+layoutparser>=0.3.4
+
+# Google Translation (Optional - uncomment for backend translation)
+# google-cloud-translate>=3.12.0
+

@@ -1,0 +1,36 @@
+[Unit]
+Description=DOCUGRAPH Backend API Server
+Documentation=https://docugraph.site
+After=network.target
+
+[Service]
+Type=simple
+User=www-data
+WorkingDirectory=/path/to/DOCUGRAPH_WEBSITE/backend
+Environment="PATH=/usr/local/bin:/usr/bin:/bin"
+Environment="FLASK_ENV=production"
+Environment="PORT=5000"
+Environment="WORKERS=4"
+ExecStart=/usr/bin/python3 /path/to/DOCUGRAPH_WEBSITE/backend/run_production.py
+
+# Restart policy
+Restart=on-failure
+RestartSec=10
+StartLimitInterval=60
+StartLimitBurst=5
+
+# Resource limits
+MemoryLimit=2G
+CPUQuota=80%
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=docugraph-backend
+
+# Security
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

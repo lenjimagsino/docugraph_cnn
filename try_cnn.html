@@ -1,0 +1,397 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#ffffff">
+<title>Try DOCUGRAPH CNN-Only — Document Analysis</title>
+<link rel="icon" type="image/png" href="assets/logo.png">
+<link rel="stylesheet" href="assets/style.css">
+<script src="https://d3js.org/d3.v7.min.js"></script>
+<style>
+  body.loading main, body.loading header { visibility: hidden; }
+  .auth-loading { position: fixed; inset: 0; display: grid; place-items: center; background: var(--white); z-index: 9999; }
+  .auth-loading .spinner { width: 44px; height: 44px; border: 3px solid var(--green-200); border-top-color: var(--green-600); border-radius: 50%; animation: spin 0.8s linear infinite; }
+  body:not(.loading) .auth-loading { display: none; }
+  
+  .processing { position: relative; height: 300px; display: flex; align-items: center; justify-content: center; }
+  .processing-spinner { width: 50px; height: 50px; border: 3px solid var(--green-100); border-top-color: var(--green-600); border-radius: 50%; animation: spin 0.8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  
+  .output-preview { position: relative; width: 100%; aspect-ratio: auto; min-height: 400px; background: var(--off); border-radius: 8px; overflow: hidden; display: flex; align-items: center; justify-content: center; }
+  .bbox-overlay { position: absolute; inset: 0; z-index: 10; }
+  #preview-placeholder { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 1; }
+  .bbox { position: absolute; border: 2px solid; font-size: 10px; font-weight: 600; padding: 3px 6px; border-radius: 3px; pointer-events: none; display: flex; align-items: center; justify-content: flex-start; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; min-width: 50px; min-height: 20px; }
+  .bbox.header { border-color: var(--green-700); background: rgba(34, 197, 94, 0.15); color: var(--green-900); }
+  .bbox.para { border-color: var(--green-500); background: rgba(34, 197, 94, 0.08); color: var(--green-700); }
+  .bbox.table { border-color: #d97706; background: rgba(217, 119, 6, 0.12); color: #92400e; }
+  .bbox.figure { border-color: #7c3aed; background: rgba(124, 58, 237, 0.12); color: #5b21b6; }
+  .bbox.shape { border-color: #ec4899; background: rgba(236, 72, 153, 0.12); color: #be185d; }
+  
+  .camera-modal { position: fixed; inset: 0; background: rgba(0,0,0,0.8); display: none; z-index: 1000; align-items: center; justify-content: center; }
+  .camera-modal.active { display: flex; }
+  .camera-modal-content { background: var(--white); border-radius: 16px; padding: 24px; max-width: 500px; width: 90%; box-shadow: 0 20px 60px rgba(0,0,0,0.3); }
+  .camera-modal-header { font-size: 18px; font-weight: 600; color: var(--ink-900); margin-bottom: 16px; display: flex; align-items: center; justify-content: space-between; }
+  .camera-modal-close { background: none; border: none; font-size: 24px; cursor: pointer; color: var(--ink-500); padding: 0; width: 32px; height: 32px; display: grid; place-items: center; }
+  .camera-container { position: relative; width: 100%; background: var(--off); border-radius: 12px; overflow: hidden; margin-bottom: 16px; }
+  #camera-video { width: 100%; display: block; background: #000; aspect-ratio: 4/5; }
+  #camera-canvas { display: none; }
+  .camera-capture { width: 100%; padding: 12px 16px; background: var(--green-600); color: white; border: none; border-radius: 8px; font-weight: 600; cursor: pointer; transition: all 0.2s; margin-bottom: 12px; }
+  .camera-capture:hover { background: var(--green-700); }
+  .camera-capture:active { transform: scale(0.98); }
+  .camera-controls { display: flex; gap: 12px; }
+  .camera-controls button { flex: 1; padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--white); cursor: pointer; font-weight: 600; transition: all 0.2s; }
+  .camera-controls button:hover { background: var(--off); }
+  .camera-retake { background: var(--red-50); color: var(--red-700); border-color: var(--red-200); }
+  .camera-retake:hover { background: var(--red-100); }
+  .camera-use { background: var(--green-50); color: var(--green-700); border-color: var(--green-200); }
+  .camera-use:hover { background: var(--green-100); }
+  .camera-preview { display: none; position: relative; width: 100%; background: var(--off); border-radius: 12px; margin-bottom: 16px; overflow: hidden; }
+  .camera-preview.active { display: block; }
+  .camera-preview img { width: 100%; display: block; }
+  .camera-loading { text-align: center; padding: 20px; color: var(--ink-600); }
+  
+  .confidence-badge { position: absolute; top: 8px; right: 8px; background: var(--green-600); color: white; padding: 6px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; }
+  
+  .results-summary { margin-top: 20px; padding: 16px; background: var(--green-50); border-radius: 8px; border-left: 4px solid var(--green-600); }
+  .results-summary h4 { margin: 0 0 12px 0; color: var(--green-900); }
+  .results-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; font-size: 13px; }
+  .result-item { display: flex; justify-content: space-between; color: var(--ink-700); }
+  .result-item strong { color: var(--green-700); }
+  
+  .cnn-badge { display: inline-block; background: linear-gradient(120deg, #7c3aed, #ec4899); color: white; padding: 4px 10px; border-radius: 12px; font-size: 11px; font-weight: 700; margin-left: 6px; }
+  
+  .comparison-info { padding: 12px 16px; background: #f3e8ff; border: 1px solid #e9d5ff; border-radius: 8px; margin-top: 12px; font-size: 12px; color: #6b21a8; }
+  
+  #view-results-btn, #new-document-btn { position: relative; z-index: 100; pointer-events: auto; cursor: pointer; }
+</style>
+</head>
+<body class="loading">
+
+<!-- Backend Configuration -->
+<script>
+  window.BACKEND_URL = 'https://docugraph.site:5000';
+  if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+    window.BACKEND_URL = 'http://localhost:5000';
+  }
+  window.ANALYSIS_MODE = 'cnn-only';
+</script>
+
+<div class="auth-loading"><div class="spinner"></div></div>
+
+<!-- ===== NAVBAR ===== -->
+<header class="nav">
+  <div class="nav-inner">
+    <a href="index.html" class="brand">
+      <img src="assets/logo.png" alt="DOCUGRAPH">
+      <span><b>DOCU</b><em>GRAPH</em></span>
+    </a>
+    <nav>
+      <ul class="nav-links">
+        <li><a href="dashboard.html">Dashboard</a></li>
+        <li><a href="try.html">DOCUGRAPH (CNN+GNN)</a></li>
+        <li><a href="try_cnn.html" class="active">CNN-Only <span class="cnn-badge">Comparison</span></a></li>
+        <li><a href="results.html">Results</a></li>
+        <li><a href="index.html#about">Research</a></li>
+      </ul>
+    </nav>
+    <div style="display:flex; align-items:center; gap:10px;">
+      <div class="nav-user" id="nav-user">
+        <button class="nav-user-btn" id="user-btn">
+          <span class="avatar-sm" id="user-avatar">U</span>
+          <span class="name" id="user-name">User</span>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+        </button>
+        <div class="nav-user-menu">
+          <div class="menu-head">
+            <div class="menu-name" id="menu-name">User</div>
+            <div class="menu-email" id="menu-email">user@example.com</div>
+          </div>
+          <a href="dashboard.html"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>Dashboard</a>
+          <div class="menu-divider"></div>
+          <button class="logout" id="logout-btn"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>Sign out</button>
+        </div>
+      </div>
+      <button class="nav-toggle" aria-label="Toggle navigation"><span></span></button>
+    </div>
+  </div>
+</header>
+
+<!-- ===== TRY PAGE (CNN-ONLY) ===== -->
+<main class="page-wrap">
+  <div class="wrap">
+
+    <div class="page-head reveal">
+      <div>
+        <span class="s-tag" style="margin-bottom:14px">CNN-Only Analysis <span class="cnn-badge">Baseline Model</span></span>
+        <h1>Try CNN-Only Analysis</h1>
+        <p>Upload a document and analyze its layout using CNN features only (without Graph Neural Networks). This provides a comparison baseline for evaluating DOCUGRAPH's full CNN+GNN architecture.</p>
+      </div>
+      <a href="comparison.html" class="btn btn-ghost">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 9l-18 0M18 15l-18 0M9 3l9 0"/></svg>
+        View Comparison Results
+      </a>
+    </div>
+
+    <div class="demo-grid">
+
+      <!-- Left: Upload -->
+      <div class="panel reveal">
+        <h3>1. Upload Your Document</h3>
+
+        <div class="dropzone" id="dropzone">
+          <div style="font-size: 32px; margin-bottom: 12px;">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+          </div>
+          <h4>Drag &amp; drop your file</h4>
+          <p>or click to browse from your device</p>
+          <div style="display: flex; gap: 10px; margin-top: 6px; flex-wrap: wrap; justify-content: center;">
+            <button type="button" class="btn btn-primary" id="browse-btn">
+              Choose File
+            </button>
+            <button type="button" class="btn btn-secondary" id="camera-btn" style="background: var(--green-600); color: white; border: none;">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display: inline; margin-right: 6px; vertical-align: -2px;"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+              Use Camera
+            </button>
+          </div>
+          <input type="file" id="file-input" accept=".jpg,.jpeg,.png,.webp,.bmp" hidden>
+          <div class="formats">
+            <span>JPG</span>
+            <span>PNG</span>
+            <span>WebP</span>
+          </div>
+        </div>
+
+        <div id="file-info" style="display:none; margin-top:18px; padding:14px 16px; background:var(--green-50); border:1px solid var(--green-200); border-radius:12px;">
+          <div style="display:flex; align-items:center; gap:12px;">
+            <div style="width:40px; height:40px; border-radius:10px; background:var(--green-200); display:grid; place-items:center; font-size:20px;">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+            </div>
+            <div style="flex:1; min-width:0;">
+              <div id="file-name" style="font-weight:600; font-size:14px; color:var(--ink-900); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;"></div>
+              <div id="file-size" style="font-size:12px; color:var(--ink-500); font-family:var(--font-mono);"></div>
+            </div>
+            <button type="button" id="remove-file" style="color:var(--ink-500); padding:6px;" aria-label="Remove file">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+            </button>
+          </div>
+        </div>
+
+        <div class="btn-row" id="action-buttons" style="display:none;">
+          <button class="btn btn-primary" id="analyze-btn">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2c2.2 0 4 1.8 4 4 0 1.5-.8 2.8-2 3.5M12 2c-2.2 0-4 1.8-4 4 0 1.5.8 2.8 2 3.5M9 9c-2.2 0-4 1.8-4 4 0 2.2 1.8 4 4 4M15 9c2.2 0 4 1.8 4 4 0 2.2-1.8 4-4 4M12 17c-2.2 0-4 1.8-4 4s1.8 4 4 4 4-1.8 4-4-1.8-4-4-4"/></svg>
+            Analyze Layout (CNN Only)
+          </button>
+        </div>
+
+        <div style="margin-top:24px; padding:14px 16px; background:var(--off); border-radius:10px; border:1px solid var(--line);">
+          <div style="font-size:13px; color:var(--ink-700); display:flex; align-items:flex-start; gap:10px;">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--green-600)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0; margin-top:1px;"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+            <div style="line-height:1.6;">
+              <strong style="display:block; margin-bottom:8px;">CNN-Only Analysis Features</strong>
+              <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px 12px; font-size:12px;">
+                <div>✓ CNN Feature Extraction</div>
+                <div>✓ Layout Detection (Detectron2)</div>
+                <div>✓ Bounding Box Predictions</div>
+                <div>✓ Confidence Scoring</div>
+                <div>✓ Type Classification</div>
+                <div>✓ Region Analysis</div>
+                <div>✓ Smart OCR Recognition</div>
+                <div>✓ Hierarchical Segmentation</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="comparison-info">
+          <strong>ℹ Why CNN-Only Comparison?</strong> This baseline model shows CNN capabilities alone. Compare with DOCUGRAPH's CNN+GNN to see how graph relationships improve document understanding.
+        </div>
+      </div>
+
+      <!-- Right: Processing & Output Preview -->
+      <div class="panel reveal" style="transition-delay:.1s">
+        <h3>2. CNN Layout Analysis Results</h3>
+        
+        <!-- Processing state -->
+        <div id="processing-state" style="display:none;">
+          <div class="processing">
+            <div class="processing-spinner"></div>
+          </div>
+          <div style="text-align: center; margin-top: 16px; color: var(--ink-600);">
+            <p style="margin: 0; font-weight: 500;">CNN Layout Analysis in Progress...</p>
+            <div style="font-size: 12px; margin-top: 12px; color: var(--ink-500); line-height: 1.6;">
+              <div>✓ Extracting CNN Features</div>
+              <div>✓ Detecting Document Regions</div>
+              <div>✓ Classifying Element Types</div>
+              <div>✓ Computing Confidence Scores</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Results state (after Analyze) -->
+        <div id="results-state" style="display:none;">
+          <div style="position: relative;">
+            <div class="confidence-badge">Avg Confidence: <span id="confidence-score">0%</span></div>
+            <div class="output-preview">
+              <div class="bbox-overlay" id="bbox-container"></div>
+              <div style="text-align: center; z-index: 1; color: var(--ink-400);" id="preview-placeholder">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="width: 40px; height: 40px; margin: 0 auto 12px;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                <p>CNN feature detection and region analysis</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Analysis Results Summary -->
+          <div class="results-summary">
+            <h4><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline; margin-right:6px; vertical-align:-2px;"><line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/></svg> CNN Analysis Results</h4>
+            <div class="results-grid-2">
+              <div class="result-item">
+                <span>Regions Detected:</span>
+                <strong id="region-count">0</strong>
+              </div>
+              <div class="result-item">
+                <span>Headers:</span>
+                <strong id="header-count">0</strong>
+              </div>
+              <div class="result-item">
+                <span>Paragraphs:</span>
+                <strong id="para-count">0</strong>
+              </div>
+              <div class="result-item">
+                <span>Tables/Figures:</span>
+                <strong id="table-count">0</strong>
+              </div>
+              <div class="result-item">
+                <span>Avg CNN Confidence:</span>
+                <strong id="cnn-confidence">0%</strong>
+              </div>
+              <div class="result-item">
+                <span>Feature Types:</span>
+                <strong id="feature-types">0</strong>
+              </div>
+            </div>
+          </div>
+
+          <!-- Start OCR Button -->
+          <div class="btn-row" style="margin-top: 16px;">
+            <button class="btn btn-primary" id="ocr-btn" style="display: flex; align-items: center; gap: 8px;">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+              Start OCR & Extract Text
+            </button>
+          </div>
+        </div>
+
+        <!-- OCR Complete State (after Start OCR) -->
+        <div id="ocr-state" style="display:none;">
+          <!-- Scanned Text Display -->
+          <div style="margin-bottom: 20px;">
+            <h4 style="margin: 0 0 12px 0; font-size: 14px; color: var(--ink-900);">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline; margin-right:6px; vertical-align:-2px;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>Extracted Text (CNN-Only)
+            </h4>
+            <div id="scanned-text-container" style="background: var(--white); border: 1px solid var(--line); border-radius: 8px; padding: 16px; max-height: 300px; overflow-y: auto; font-family: var(--font-mono); font-size: 13px; color: var(--ink-700); line-height: 1.6;">
+              <p style="color: var(--ink-500); text-align: center; margin: 0;">Text content will appear here...</p>
+            </div>
+          </div>
+
+          <!-- Detected Tables (if any) -->
+          <div id="tables-container" style="display:none; margin-bottom: 20px;">
+            <h4 style="margin: 0 0 12px 0; font-size: 14px; color: var(--ink-900);">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline; margin-right:6px; vertical-align:-2px;"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>Detected Tables
+            </h4>
+            <div id="detected-tables" style="background: var(--white); border: 1px solid var(--line); border-radius: 8px; padding: 16px; overflow-x: auto;"></div>
+          </div>
+
+          <!-- Export & Comparison Options -->
+          <div id="export-options" style="margin-top: 20px; padding: 16px; background: #f3e8ff; border-radius: 10px; border: 1px solid #e9d5ff;">
+            <h4 style="margin: 0 0 16px 0; font-size: 14px; color: #6b21a8;">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline; margin-right:6px; vertical-align:-2px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg> Export & Compare
+            </h4>
+            
+            <div style="margin-bottom: 16px; display: flex; align-items: center; gap: 10px; padding: 12px; background: white; border-radius: 8px; border: 1px solid #e9d5ff;">
+              <input type="checkbox" id="save-for-comparison" checked style="width: 18px; height: 18px; cursor: pointer;">
+              <label for="save-for-comparison" style="cursor: pointer; flex: 1; margin: 0;">
+                <strong style="color: #6b21a8;">Save Results for Comparison</strong>
+                <div style="font-size: 12px; color: #9333ea; margin-top: 2px;">Compare this CNN-only result with CNN+GNN analysis</div>
+              </label>
+            </div>
+          </div>
+
+          <!-- Download Buttons -->
+          <div class="btn-row" style="margin-top: 16px; gap: 10px;">
+            <button class="btn btn-primary" id="copy-text-btn">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/></svg>
+              Copy Text
+            </button>
+            <button class="btn btn-ghost" id="compare-btn">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+              View Comparison
+            </button>
+            <button class="btn btn-ghost" id="new-analysis-btn">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+              New Document
+            </button>
+          </div>
+        </div>
+
+        <!-- Initial state -->
+        <div id="initial-state">
+          <div class="output-preview">
+            <div style="text-align: center; color: var(--ink-400);">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="width: 40px; height: 40px; margin: 0 auto 12px;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+              <p style="font-size:14px;">Upload or select a test document</p>
+              <p style="font-size:12.5px; margin-top:6px; color:var(--ink-300)">CNN layout analysis results will appear here</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Camera Modal -->
+  <div id="camera-modal" class="camera-modal">
+    <div class="camera-modal-content">
+      <div class="camera-modal-header">
+        <span>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display: inline; margin-right: 8px; vertical-align: -2px;"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+          Capture Document
+        </span>
+        <button class="camera-modal-close" id="camera-close">&times;</button>
+      </div>
+      
+      <div id="camera-setup" class="camera-loading">
+        Initializing camera...
+      </div>
+      
+      <div id="camera-live" style="display: none;">
+        <div class="camera-container">
+          <video id="camera-video" playsinline autoplay></video>
+          <canvas id="camera-canvas"></canvas>
+        </div>
+        <button class="camera-capture" id="camera-snap">Capture Photo</button>
+      </div>
+      
+      <div id="camera-review" style="display: none;">
+        <div class="camera-preview active">
+          <img id="camera-captured" src="" alt="Captured">
+        </div>
+        <div class="camera-controls">
+          <button class="camera-retake" id="camera-retake">Retake Photo</button>
+          <button class="camera-use" id="camera-confirm">Use This Photo</button>
+        </div>
+      </div>
+      
+      <div id="camera-error" style="display: none; color: var(--red-600); padding: 16px; text-align: center; border-radius: 8px; background: var(--red-50); border: 1px solid var(--red-200);">
+        Unable to access camera. Please check permissions and try again, or use file upload instead.
+      </div>
+    </div>
+  </div>
+</main>
+
+<script src="assets/main.js"></script>
+<script src="assets/cnn_only.js"></script>
+<script async src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+</body>
+</html>

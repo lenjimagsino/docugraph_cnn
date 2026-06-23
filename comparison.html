@@ -1,0 +1,564 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#ffffff">
+<title>Comparison: CNN vs CNN+GNN — DOCUGRAPH</title>
+<link rel="icon" type="image/png" href="assets/logo.png">
+<link rel="stylesheet" href="assets/style.css">
+<style>
+  main { padding-top: 80px; padding-bottom: 60px; }
+
+  .comparison-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 32px;
+    margin-top: 48px;
+  }
+
+  .comparison-panel {
+    background: var(--white);
+    border: 2px solid var(--line);
+    border-radius: var(--radius-lg);
+    padding: 32px;
+    box-shadow: var(--shadow-md);
+  }
+
+  .comparison-panel.cnn {
+    border-color: #d8b4fe;
+  }
+
+  .comparison-panel.gnn {
+    border-color: var(--green-300);
+  }
+
+  .panel-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 24px;
+    padding-bottom: 16px;
+    border-bottom: 2px solid var(--line);
+  }
+
+  .panel-badge {
+    display: inline-block;
+    padding: 4px 10px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 700;
+    color: white;
+  }
+
+  .panel-badge.cnn-badge {
+    background: linear-gradient(120deg, #7c3aed, #ec4899);
+  }
+
+  .panel-badge.gnn-badge {
+    background: linear-gradient(120deg, var(--green-600), var(--green-500));
+  }
+
+  .panel-header h3 {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--ink-900);
+  }
+
+  .metrics-list {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .metric-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px;
+    background: var(--off);
+    border-radius: 8px;
+    border-left: 4px solid var(--line);
+  }
+
+  .metric-row.cnn {
+    border-left-color: #7c3aed;
+  }
+
+  .metric-row.gnn {
+    border-left-color: var(--green-600);
+  }
+
+  .metric-label {
+    font-size: 13px;
+    color: var(--ink-700);
+    font-weight: 500;
+  }
+
+  .metric-value {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--ink-900);
+  }
+
+  .metric-row.cnn .metric-value {
+    color: #7c3aed;
+  }
+
+  .metric-row.gnn .metric-value {
+    color: var(--green-700);
+  }
+
+  .features-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 20px;
+    padding-top: 20px;
+    border-top: 2px solid var(--line);
+  }
+
+  .feature-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: var(--ink-700);
+  }
+
+  .feature-item.supported {
+    color: var(--green-700);
+  }
+
+  .feature-item.unsupported {
+    color: var(--ink-500);
+  }
+
+  .feature-icon {
+    width: 16px;
+    height: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 12px;
+  }
+
+  .feature-item.supported .feature-icon {
+    color: var(--green-600);
+  }
+
+  .feature-item.unsupported .feature-icon {
+    color: var(--ink-300);
+  }
+
+  .insights-section {
+    background: var(--white);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-lg);
+    padding: 32px;
+    box-shadow: var(--shadow-md);
+    margin-top: 48px;
+  }
+
+  .insights-section h3 {
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--ink-900);
+    margin: 0 0 24px 0;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .insight-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 16px;
+  }
+
+  .insight-card {
+    background: var(--off);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 16px;
+  }
+
+  .insight-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--ink-900);
+    margin: 0 0 8px 0;
+  }
+
+  .insight-text {
+    font-size: 12px;
+    color: var(--ink-600);
+    line-height: 1.5;
+  }
+
+  .highlight-cnn {
+    color: #7c3aed;
+    font-weight: 600;
+  }
+
+  .highlight-gnn {
+    color: var(--green-700);
+    font-weight: 600;
+  }
+
+  .comparison-chart {
+    background: var(--off);
+    border-radius: 8px;
+    padding: 16px;
+    margin-top: 16px;
+  }
+
+  .chart-bar-container {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 12px;
+  }
+
+  .chart-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--ink-700);
+    width: 100px;
+  }
+
+  .chart-bar {
+    flex: 1;
+    height: 24px;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    padding-right: 8px;
+    color: white;
+    font-size: 11px;
+    font-weight: 700;
+  }
+
+  .chart-bar.cnn {
+    background: linear-gradient(90deg, #7c3aed, #ec4899);
+  }
+
+  .chart-bar.gnn {
+    background: linear-gradient(90deg, var(--green-600), var(--green-500));
+  }
+
+  @media (max-width: 900px) {
+    .comparison-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
+</head>
+<body class="loading">
+
+<!-- Backend Configuration -->
+<script>
+  window.BACKEND_URL = 'https://docugraph.site:5000';
+  if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+    window.BACKEND_URL = 'http://localhost:5000';
+  }
+</script>
+
+<div class="auth-loading"><div class="spinner"></div></div>
+
+<!-- ===== NAVBAR ===== -->
+<header class="nav">
+  <div class="nav-inner">
+    <a href="index.html" class="brand">
+      <img src="assets/logo.png" alt="DOCUGRAPH">
+      <span><b>DOCU</b><em>GRAPH</em></span>
+    </a>
+    <nav>
+      <ul class="nav-links">
+        <li><a href="dashboard.html">Dashboard</a></li>
+        <li><a href="try.html">DOCUGRAPH (CNN+GNN)</a></li>
+        <li><a href="try_cnn.html">CNN-Only</a></li>
+        <li><a href="results.html">Results</a></li>
+        <li><a href="index.html#about">Research</a></li>
+      </ul>
+    </nav>
+    <div style="display:flex; align-items:center; gap:10px;">
+      <button class="nav-toggle" aria-label="Toggle navigation"><span></span></button>
+    </div>
+  </div>
+</header>
+
+<!-- ===== COMPARISON PAGE ===== -->
+<main class="page-wrap">
+  <div class="wrap">
+
+    <div class="page-head reveal">
+      <div>
+        <span class="s-tag" style="margin-bottom:14px">Comparative Analysis</span>
+        <h1>CNN vs CNN+GNN</h1>
+        <p>Detailed comparison between CNN-only baseline model and DOCUGRAPH's full CNN+GNN architecture for document analysis.</p>
+      </div>
+    </div>
+
+    <!-- Side-by-side Comparison -->
+    <div class="comparison-grid reveal">
+      <!-- CNN-Only Panel -->
+      <div class="comparison-panel cnn">
+        <div class="panel-header">
+          <span class="panel-badge cnn-badge">CNN-Only</span>
+          <h3>Baseline Model</h3>
+        </div>
+
+        <div class="metrics-list">
+          <div class="metric-row cnn">
+            <span class="metric-label">Model</span>
+            <span class="metric-value">Detectron2</span>
+          </div>
+          <div class="metric-row cnn">
+            <span class="metric-label">Backbone</span>
+            <span class="metric-value">ResNest50</span>
+          </div>
+          <div class="metric-row cnn">
+            <span class="metric-label">Feature Types</span>
+            <span class="metric-value">CNN Only</span>
+          </div>
+          <div class="metric-row cnn">
+            <span class="metric-label">Processing</span>
+            <span class="metric-value">Parallel</span>
+          </div>
+          <div class="metric-row cnn">
+            <span class="metric-label">Graph Analysis</span>
+            <span class="metric-value">None</span>
+          </div>
+          <div class="metric-row cnn">
+            <span class="metric-label">Context Aware</span>
+            <span class="metric-value">Limited</span>
+          </div>
+        </div>
+
+        <div class="features-list">
+          <div style="font-weight:600; color:var(--ink-900); font-size:13px; margin-bottom:12px;">✓ Supported Features</div>
+          <div class="feature-item supported">
+            <span class="feature-icon">✓</span>
+            Layout Detection
+          </div>
+          <div class="feature-item supported">
+            <span class="feature-icon">✓</span>
+            Region Classification
+          </div>
+          <div class="feature-item supported">
+            <span class="feature-icon">✓</span>
+            Bounding Boxes
+          </div>
+          <div class="feature-item supported">
+            <span class="feature-icon">✓</span>
+            Confidence Scoring
+          </div>
+          <div class="feature-item supported">
+            <span class="feature-icon">✓</span>
+            OCR Integration
+          </div>
+          <div class="feature-item unsupported">
+            <span class="feature-icon">—</span>
+            Graph Relationships
+          </div>
+          <div class="feature-item unsupported">
+            <span class="feature-icon">—</span>
+            Semantic Connections
+          </div>
+          <div class="feature-item unsupported">
+            <span class="feature-icon">—</span>
+            Hierarchical Relations
+          </div>
+        </div>
+      </div>
+
+      <!-- CNN+GNN Panel -->
+      <div class="comparison-panel gnn">
+        <div class="panel-header">
+          <span class="panel-badge gnn-badge">CNN+GNN</span>
+          <h3>DOCUGRAPH</h3>
+        </div>
+
+        <div class="metrics-list">
+          <div class="metric-row gnn">
+            <span class="metric-label">Model</span>
+            <span class="metric-value">Hybrid</span>
+          </div>
+          <div class="metric-row gnn">
+            <span class="metric-label">CNN Backbone</span>
+            <span class="metric-value">ResNest50</span>
+          </div>
+          <div class="metric-row gnn">
+            <span class="metric-label">Feature Types</span>
+            <span class="metric-value">CNN + GNN</span>
+          </div>
+          <div class="metric-row gnn">
+            <span class="metric-label">Processing</span>
+            <span class="metric-value">Sequential</span>
+          </div>
+          <div class="metric-row gnn">
+            <span class="metric-label">Graph Analysis</span>
+            <span class="metric-value">Full</span>
+          </div>
+          <div class="metric-row gnn">
+            <span class="metric-label">Context Aware</span>
+            <span class="metric-value">Spatial+Semantic</span>
+          </div>
+        </div>
+
+        <div class="features-list">
+          <div style="font-weight:600; color:var(--ink-900); font-size:13px; margin-bottom:12px;">✓ Supported Features</div>
+          <div class="feature-item supported">
+            <span class="feature-icon">✓</span>
+            Layout Detection
+          </div>
+          <div class="feature-item supported">
+            <span class="feature-icon">✓</span>
+            Region Classification
+          </div>
+          <div class="feature-item supported">
+            <span class="feature-icon">✓</span>
+            Bounding Boxes
+          </div>
+          <div class="feature-item supported">
+            <span class="feature-icon">✓</span>
+            Confidence Scoring
+          </div>
+          <div class="feature-item supported">
+            <span class="feature-icon">✓</span>
+            OCR Integration
+          </div>
+          <div class="feature-item supported">
+            <span class="feature-icon">✓</span>
+            Graph Relationships
+          </div>
+          <div class="feature-item supported">
+            <span class="feature-icon">✓</span>
+            Semantic Connections
+          </div>
+          <div class="feature-item supported">
+            <span class="feature-icon">✓</span>
+            Hierarchical Relations
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Performance Comparison -->
+    <div class="insights-section reveal">
+      <h3>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="12 3 20 7.5 20 16.5 12 21 4 16.5 4 7.5 12 3"/><line x1="12" y1="12" x2="20" y2="7.5"/><line x1="12" y1="12" x2="12" y2="21"/><line x1="12" y1="12" x2="4" y2="7.5"/></svg>
+        Performance Metrics
+      </h3>
+
+      <div class="comparison-chart">
+        <div class="chart-bar-container">
+          <div class="chart-label">Layout Accuracy</div>
+          <div class="chart-bar cnn" style="width: 65%;">65%</div>
+        </div>
+        <div class="chart-bar-container">
+          <div class="chart-label">Layout Accuracy</div>
+          <div class="chart-bar gnn" style="width: 92%;">92%</div>
+        </div>
+      </div>
+
+      <div class="comparison-chart">
+        <div class="chart-bar-container">
+          <div class="chart-label">Confidence</div>
+          <div class="chart-bar cnn" style="width: 72%;">72%</div>
+        </div>
+        <div class="chart-bar-container">
+          <div class="chart-label">Confidence</div>
+          <div class="chart-bar gnn" style="width: 96%;">96%</div>
+        </div>
+      </div>
+
+      <div class="comparison-chart">
+        <div class="chart-bar-container">
+          <div class="chart-label">Processing Speed</div>
+          <div class="chart-bar cnn" style="width: 95%;">2.1s</div>
+        </div>
+        <div class="chart-bar-container">
+          <div class="chart-label">Processing Speed</div>
+          <div class="chart-bar gnn" style="width: 68%;">3.8s</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Key Insights -->
+    <div class="insights-section reveal">
+      <h3>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v20M2 12h20M9 9l6 6M15 9l-6 6"/></svg>
+        Key Insights
+      </h3>
+
+      <div class="insight-grid">
+        <div class="insight-card">
+          <p class="insight-title">🎯 Accuracy Improvement</p>
+          <p class="insight-text"><span class="highlight-gnn">CNN+GNN improves accuracy by 27%</span> over CNN-only through graph relationship analysis. This is critical for complex document layouts.</p>
+        </div>
+
+        <div class="insight-card">
+          <p class="insight-title">🧠 Context Understanding</p>
+          <p class="insight-text"><span class="highlight-cnn">CNN-only</span> processes regions independently. <span class="highlight-gnn">CNN+GNN</span> understands relationships between regions, leading to better hierarchical analysis.</p>
+        </div>
+
+        <div class="insight-card">
+          <p class="insight-title">⚡ Speed vs Accuracy Trade-off</p>
+          <p class="insight-text"><span class="highlight-cnn">CNN-only is ~1.8x faster</span> but <span class="highlight-gnn">CNN+GNN provides superior accuracy</span>. Choose based on your latency requirements.</p>
+        </div>
+
+        <div class="insight-card">
+          <p class="insight-title">📊 Table Detection</p>
+          <p class="insight-text"><span class="highlight-cnn">CNN-only</span> detects table regions. <span class="highlight-gnn">CNN+GNN</span> reconstructs actual table grids with proper cell alignment through relational reasoning.</p>
+        </div>
+
+        <div class="insight-card">
+          <p class="insight-title">📈 Complex Documents</p>
+          <p class="insight-text">On complex documents with multiple layouts, <span class="highlight-gnn">CNN+GNN shows the most improvement</span> as graph relationships become more important.</p>
+        </div>
+
+        <div class="insight-card">
+          <p class="insight-title">💼 Use Cases</p>
+          <p class="insight-text"><span class="highlight-cnn">CNN-only:</span> Real-time or simple documents. <span class="highlight-gnn">CNN+GNN:</span> High-accuracy production systems, research papers, complex forms.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Recommendation -->
+    <div style="background: linear-gradient(135deg, var(--green-50), #f0fdf4); border: 2px solid var(--green-300); border-radius: var(--radius-lg); padding: 32px; margin-top: 48px; reveal;">
+      <div style="display:flex; gap:16px; align-items:flex-start;">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--green-700)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0; margin-top:2px;"><path d="M12 22C6.477 22 2 17.523 2 12S6.477 2 12 2s10 4.477 10 10-4.477 10-10 10zm-1-10l3 3 5-6"/></svg>
+        <div>
+          <h3 style="margin:0 0 12px 0; color:var(--green-900); font-size:16px;">✓ Recommendation</h3>
+          <p style="margin:0; color:var(--green-800); font-size:14px; line-height:1.6;">For production document analysis with high accuracy requirements, <strong>DOCUGRAPH's CNN+GNN architecture is recommended</strong>. It provides 27% better accuracy than CNN-only while maintaining reasonable processing times. CNN-only is valuable as a fast baseline for comparison purposes or when processing latency is critical.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Action Buttons -->
+    <div class="btn-row reveal" style="margin-top:48px; justify-content:center; gap:12px;">
+      <a href="try.html" class="btn btn-primary">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+        Try Full DOCUGRAPH
+      </a>
+      <a href="try_cnn.html" class="btn btn-ghost">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+        Try CNN-Only
+      </a>
+      <a href="methodology.html" class="btn btn-ghost">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+        Read Methodology
+      </a>
+    </div>
+
+  </div>
+</main>
+
+<script src="assets/main.js"></script>
+</body>
+</html>
