@@ -4,9 +4,8 @@
  */
 
 window.CONFIG = {
-  // IMPORTANT: Update this with your Railway backend URL after deployment
-  // Example: 'https://your-project.up.railway.app'
-  BACKEND_URL_PRODUCTION: 'https://docugraph-cnn-api.up.railway.app',
+  // Production backend URL on Railway
+  BACKEND_URL_PRODUCTION: 'https://docugraphcnn-production.up.railway.app',
   
   // Local development URL (used when running on localhost)
   BACKEND_URL_LOCAL: 'http://localhost:5000',
