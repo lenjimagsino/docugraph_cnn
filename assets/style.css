@@ -1,6 +1,6 @@
-/* ============================================
-   DOCUGRAPH – Global Stylesheet
-   Theme: White base · Green accents · Light green glow
+﻿/* ============================================
+   DOCUGRAPH ΓÇô Global Stylesheet
+   Theme: White base ┬╖ Green accents ┬╖ Light green glow
    ============================================ */
 
 @import url('https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600;700;800&family=Plus+Jakarta+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
@@ -483,7 +483,7 @@ section.s {
 }
 .objectives li:last-child { border-bottom: none; }
 .objectives li::before {
-  content: '✓';
+  content: 'Γ£ô';
   flex-shrink: 0;
   width: 22px; height: 22px;
   border-radius: 50%;
@@ -980,7 +980,7 @@ footer ul a:hover { color: var(--green-400); }
   font-size: 14.5px; color: rgba(255,255,255,.92);
 }
 .auth-pitch ul li::before {
-  content: '✓';
+  content: 'Γ£ô';
   flex-shrink: 0;
   width: 22px; height: 22px;
   border-radius: 50%;

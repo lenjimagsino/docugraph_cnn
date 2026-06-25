@@ -451,35 +451,36 @@
       <div class="comparison-chart">
         <div class="chart-bar-container">
           <div class="chart-label">Layout Accuracy</div>
-          <div class="chart-bar cnn" style="width: 65%;">65%</div>
+          <div class="chart-bar cnn" id="cnn-layout-accuracy-bar" style="width: 20%;">Loading…</div>
         </div>
         <div class="chart-bar-container">
           <div class="chart-label">Layout Accuracy</div>
-          <div class="chart-bar gnn" style="width: 92%;">92%</div>
+          <div class="chart-bar gnn" id="gnn-layout-accuracy-bar" style="width: 20%;">N/A</div>
         </div>
       </div>
 
       <div class="comparison-chart">
         <div class="chart-bar-container">
           <div class="chart-label">Confidence</div>
-          <div class="chart-bar cnn" style="width: 72%;">72%</div>
+          <div class="chart-bar cnn" id="cnn-confidence-bar" style="width: 20%;">Loading…</div>
         </div>
         <div class="chart-bar-container">
           <div class="chart-label">Confidence</div>
-          <div class="chart-bar gnn" style="width: 96%;">96%</div>
+          <div class="chart-bar gnn" id="gnn-confidence-bar" style="width: 20%;">N/A</div>
         </div>
       </div>
 
       <div class="comparison-chart">
         <div class="chart-bar-container">
           <div class="chart-label">Processing Speed</div>
-          <div class="chart-bar cnn" style="width: 95%;">2.1s</div>
+          <div class="chart-bar cnn" id="cnn-speed-bar" style="width: 100%;">N/A</div>
         </div>
         <div class="chart-bar-container">
           <div class="chart-label">Processing Speed</div>
-          <div class="chart-bar gnn" style="width: 68%;">3.8s</div>
+          <div class="chart-bar gnn" id="gnn-speed-bar" style="width: 100%;">N/A</div>
         </div>
       </div>
+      <p style="margin-top:12px; color:var(--ink-600); font-size:13px;">CNN-only metrics are loaded from the latest analysis session. GNN chart values remain unavailable until full DOCUGRAPH results are captured.</p>
     </div>
 
     <!-- Key Insights -->
@@ -553,9 +554,48 @@
 </main>
 
 <script>
+function applyComparisonMetrics() {
+  const saved = sessionStorage.getItem('cnnAnalysisResults');
+  if (!saved) return;
+
+  try {
+    const data = JSON.parse(saved);
+    const stats = data.statistics || {};
+    const layoutAccuracy = Math.round((stats.layout_accuracy || 0) * 100);
+    const avgConfidence = Math.round((stats.avg_confidence || 0) * 100);
+    const analysisMs = Number(stats.analysis_time_ms || 0);
+    const speedLabel = analysisMs ? `${(analysisMs / 1000).toFixed(1)}s` : 'N/A';
+
+    const updateBar = (id, width, label) => {
+      const elem = document.getElementById(id);
+      if (!elem) return;
+      elem.style.width = `${width}%`;
+      elem.textContent = label;
+    };
+
+    updateBar('cnn-layout-accuracy-bar', layoutAccuracy, `${layoutAccuracy}%`);
+    updateBar('cnn-confidence-bar', avgConfidence, `${avgConfidence}%`);
+    const speedBar = document.getElementById('cnn-speed-bar');
+    if (speedBar) speedBar.textContent = speedLabel;
+
+    const updateText = (id, text) => {
+      const el = document.getElementById(id);
+      if (el) el.textContent = text;
+    };
+
+    updateText('cmp-conf-cnn', `${avgConfidence}%`);
+    updateText('cmp-accuracy-cnn', `${layoutAccuracy}%`);
+    updateText('cmp-regions-cnn', stats.total_blocks || 0);
+    updateText('cmp-time-cnn', speedLabel);
+  } catch (err) {
+    console.warn('Could not apply comparison metrics:', err);
+  }
+}
+
 // Remove loading state when page is ready
 document.addEventListener('DOMContentLoaded', () => {
   document.body.classList.remove('loading');
+  applyComparisonMetrics();
 });
 </script>
 <script src="assets/main.js"></script>

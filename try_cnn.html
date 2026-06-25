@@ -61,8 +61,21 @@
   
   .cnn-badge { display: inline-block; background: linear-gradient(120deg, #7c3aed, #ec4899); color: white; padding: 4px 10px; border-radius: 12px; font-size: 11px; font-weight: 700; margin-left: 6px; }
   
-  .comparison-info { padding: 12px 16px; background: #f3e8ff; border: 1px solid #e9d5ff; border-radius: 8px; margin-top: 12px; font-size: 12px; color: #6b21a8; }
-  
+  .comparison-info { padding: 12px 16px; background: var(--green-50); border: 1px solid var(--green-200); border-radius: 8px; margin-top: 12px; font-size: 12px; color: var(--green-900); }
+
+  .page-head { background: rgba(237, 249, 237, 0.85); border: 1px solid rgba(42, 168, 74, 0.18); border-radius: 24px; box-shadow: 0 24px 80px rgba(42, 168, 74, 0.08); padding: 28px; }
+  .page-head h1, .page-head p { color: var(--green-900); }
+  .page-head .s-tag { background: var(--green-100); color: var(--green-700); }
+  body { background: linear-gradient(180deg, var(--green-50) 0%, #ffffff 70%); color: var(--green-900); }
+  .nav { background: rgba(255,255,255,0.96); border-bottom: 1px solid rgba(42, 168, 74, 0.16); }
+  .nav-inner .brand span b { color: var(--green-700); }
+  .cnn-badge { background: linear-gradient(120deg, var(--green-700), var(--green-600)); }
+  .btn-ghost { border-color: var(--green-300); color: var(--green-700); }
+  .btn-ghost:hover { background: var(--green-100); }
+  .output-preview { background: var(--green-50); }
+  .result-output { border-color: rgba(42, 168, 74, 0.12); }
+  .result-item strong { color: var(--green-700); }
+  .confidence-badge { background: var(--green-600); }
   #view-results-btn, #new-document-btn { position: relative; z-index: 100; pointer-events: auto; cursor: pointer; }
 </style>
 </head>
@@ -151,7 +164,26 @@
           </div>
           <h4>Drag &amp; drop your file</h4>
           <p>or click to browse from your device</p>
-          <div style="display: flex; gap: 10px; margin-top: 6px; flex-wrap: wrap; justify-content: center;">
+          <!-- Image choice removed: uploads now follow single unified flow; use PDF converter panel when needed -->
+          <div id="pdf-converter-panel" class="pdf-converter-panel" style="display:none; margin-top:16px; padding:16px; background: white; border:1px solid var(--green-200);">
+            <div style="display:flex; align-items:center; gap:12px;">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--green-700)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2h8l4 4v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2Z"/><path d="M8 2v4h8"/><path d="M12 11v6"/><path d="M9 14h6"/></svg>
+              <div style="flex:1;">
+                <strong style="display:block; color:var(--green-900);">Convert PDF pages before analysis</strong>
+                <span style="font-size:13px; color:var(--green-700);">Upload a PDF. Converted pages become images you can download individually or as a ZIP, then analyze.</span>
+              </div>
+            </div>
+
+            <div style="margin-top:12px; display:flex; gap:10px; align-items:center;">
+              <input type="file" id="pdf-only-input" accept=".pdf" />
+              <button class="btn btn-secondary" id="pdf-only-convert-btn">Convert PDF Pages</button>
+              <button class="btn btn-ghost" id="pdf-only-download-zip-btn" style="display:none;">Download All as ZIP</button>
+            </div>
+            <div id="pdf-only-conversion-results" style="display:none; margin-top:12px;">
+              <div id="pdf-only-converted-pages-list" class="converted-pages" style="display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:10px;"></div>
+            </div>
+          </div>
+          <div style="display: flex; gap: 10px; margin-top: 16px; flex-wrap: wrap; justify-content: center;">
             <button type="button" class="btn btn-primary" id="browse-btn">
               Choose File
             </button>
@@ -166,6 +198,12 @@
             <span>PNG</span>
             <span>WebP</span>
           </div>
+          <section style="margin-top:18px; padding:16px; border-radius:16px; background: rgba(34,197,94,0.08); border: 1px solid rgba(34,197,94,0.18); color: var(--green-900);">
+            <h4 style="margin:0 0 10px; font-size:1rem;">Need to convert a non-image file?</h4>
+            <p style="margin:0; font-size:0.95rem; line-height:1.5; color: var(--green-900);">
+              Our analyzer accepts image file types only. If your upload is not already an image, <a href="filetoimageconverter.html" style="color:var(--green-700); text-decoration:underline;">convert it here first</a> and then return to analyze the result.
+            </p>
+          </section>
         </div>
 
         <div id="file-info" style="display:none; margin-top:18px; padding:14px 16px; background:var(--green-50); border:1px solid var(--green-200); border-radius:12px;">
@@ -183,11 +221,28 @@
           </div>
         </div>
 
+        <!-- removed separate PDF-only panel; converter controls now live in the above converter panel -->
+
         <div class="btn-row" id="action-buttons" style="display:none;">
           <button class="btn btn-primary" id="analyze-btn">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2c2.2 0 4 1.8 4 4 0 1.5-.8 2.8-2 3.5M12 2c-2.2 0-4 1.8-4 4 0 1.5.8 2.8 2 3.5M9 9c-2.2 0-4 1.8-4 4 0 2.2 1.8 4 4 4M15 9c2.2 0 4 1.8 4 4 0 2.2-1.8 4-4 4M12 17c-2.2 0-4 1.8-4 4s1.8 4 4 4 4-1.8 4-4-1.8-4-4-4"/></svg>
             Analyze Layout (CNN Only)
           </button>
+          <button class="btn btn-secondary" id="convert-btn" style="display:none;">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 14l2 2 4-4"/><path d="M4 4h16v16H4z"/></svg>
+            Convert PDF Pages
+          </button>
+          <button class="btn btn-ghost" id="download-all-zip-btn" style="display:none;">
+            Download All as ZIP
+          </button>
+        </div>
+
+        <div id="conversion-results" style="display:none; margin-top:20px;">
+          <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:12px;">
+            <h4 style="margin:0; font-size:16px; color:var(--ink-900);">Converted Pages</h4>
+            <span style="font-size:13px; color:var(--green-700);">Select a page to analyze or download.</span>
+          </div>
+          <div id="converted-pages-list" class="converted-pages" style="display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:12px;"></div>
         </div>
 
         <div style="margin-top:24px; padding:14px 16px; background:var(--off); border-radius:10px; border:1px solid var(--line);">
@@ -274,6 +329,41 @@
               <div class="result-item">
                 <span>Feature Types:</span>
                 <strong id="feature-types">0</strong>
+              </div>
+            </div>
+          </div>
+
+          <div class="result-output" style="margin-top:20px;">
+            <div class="tabs">
+              <button type="button" class="active" data-tab="structure">Structure Graph</button>
+              <button type="button" data-tab="region">Region Analysis</button>
+              <button type="button" data-tab="connectivity">Connectivity</button>
+              <button type="button" data-tab="metrics">Detailed Metrics</button>
+            </div>
+            <div class="tab-body">
+              <div id="tab-structure" style="display:block;">
+                <h2>Structure Graph</h2>
+                <div id="structure-graph-content" style="display:grid; gap:12px; color:#111827; font-size:14px;">
+                  <p style="color:#6b7280; margin:0;">Structure graph details will appear here after analysis.</p>
+                </div>
+              </div>
+              <div id="tab-region" style="display:none;">
+                <h2>Region Analysis</h2>
+                <div id="region-analysis-content" style="color:#111827; font-size:14px;">
+                  <p style="color:#6b7280; margin:0;">Region analysis details will appear here after analysis.</p>
+                </div>
+              </div>
+              <div id="tab-connectivity" style="display:none;">
+                <h2>Connectivity</h2>
+                <div id="connectivity-content" style="color:#111827; font-size:14px;">
+                  <p style="color:#6b7280; margin:0;">Connectivity details will appear here after analysis.</p>
+                </div>
+              </div>
+              <div id="tab-metrics" style="display:none;">
+                <h2>Detailed Metrics</h2>
+                <div id="detailed-metrics-content" style="color:#111827; font-size:14px;">
+                  <p style="color:#6b7280; margin:0;">Detailed metrics will appear here after analysis.</p>
+                </div>
               </div>
             </div>
           </div>
@@ -409,5 +499,6 @@ document.addEventListener('DOMContentLoaded', () => {
 <script async src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 </body>
 </html>

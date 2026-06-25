@@ -207,32 +207,69 @@ class CNNOnlyLayoutAnalyzer:
             # Normalize bbox to percentages
             norm_bbox = self._normalize_bbox(x, y, x + bw, y + bh, w, h)
             
+            # Heuristic confidence scoring for fallback:
+            # - area_ratio: contour area relative to image area (larger blocks -> higher confidence)
+            # - solidity: contour area divided by bounding-box area (more filled -> higher confidence)
+            # - edge_strength: average Canny response inside the bbox (stronger edges -> higher confidence)
+            area = float(bw * bh)
+            area_ratio = area / float(w * h) if (w * h) > 0 else 0.0
+            bbox_area = float(bw * bh) if (bw * bh) > 0 else 1.0
+            contour_area = float(cv2.contourArea(contour))
+            solidity = (contour_area / bbox_area) if bbox_area > 0 else 0.0
+
+            # Edge strength within bbox
+            try:
+                roi = edges[y:y+bh, x:x+bw]
+                edge_strength = float(roi.mean() / 255.0) if roi.size > 0 else 0.0
+            except Exception:
+                edge_strength = 0.0
+
+            # Normalize area_ratio to a 0-1 scale (heuristic): multiply by 8 and clamp
+            norm_area = min(1.0, area_ratio * 8.0)
+
+            # Weighted combination
+            score = 0.5 * norm_area + 0.3 * solidity + 0.2 * edge_strength
+            # Map to reasonable confidence range [0.4, 0.95]
+            confidence = float(max(0.0, min(1.0, score)))
+            confidence = 0.4 + (confidence * 0.55)
+
             predictions.append({
                 'type': 'Text',
                 'bbox': norm_bbox,
                 'bbox_px': [x, y, x + bw, y + bh],
-                'confidence': 0.65,
+                'confidence': confidence,
                 'area': bw * bh,
                 'features': {
                     'width': bw,
                     'height': bh,
-                    'aspect_ratio': bw / bh if bh > 0 else 0
+                    'aspect_ratio': bw / bh if bh > 0 else 0,
+                    'solidity': solidity,
+                    'edge_strength': edge_strength,
+                    'area_ratio': area_ratio
                 }
             })
         
         # If no contours detected, use full page
         if not predictions:
             norm_bbox = self._normalize_bbox(0, 0, w, h, w, h)
+            # Heuristic for full-page confidence: based on overall edge density
+            try:
+                edge_strength = float(edges.mean() / 255.0) if edges.size > 0 else 0.0
+            except Exception:
+                edge_strength = 0.0
+            # Map to range [0.45, 0.7]
+            confidence = 0.45 + (edge_strength * 0.25)
             predictions.append({
                 'type': 'Text',
                 'bbox': norm_bbox,
                 'bbox_px': [0, 0, w, h],
-                'confidence': 0.5,
+                'confidence': confidence,
                 'area': h * w,
                 'features': {
                     'width': w,
                     'height': h,
-                    'aspect_ratio': w / h if h > 0 else 0
+                    'aspect_ratio': w / h if h > 0 else 0,
+                    'edge_strength': edge_strength
                 }
             })
         
@@ -244,14 +281,14 @@ class CNNOnlyLayoutAnalyzer:
             'predictions': predictions,
             'prediction_count': len(predictions),
             'feature_maps': {},
-            'statistics': {
-                'total_blocks': len(predictions),
-                'avg_confidence': float(avg_confidence),
-                'type_distribution': {'Text': len(predictions)},
-                'image_shape': list(image_array.shape),
-                'fallback': True,
-                'method': 'Edge detection + contour analysis'
-            }
+                'statistics': {
+                    'total_blocks': len(predictions),
+                    'avg_confidence': float(avg_confidence),
+                    'type_distribution': {'Text': len(predictions)},
+                    'image_shape': list(image_array.shape),
+                    'fallback': True,
+                    'fallback_confidence_method': 'area_ratio*0.5 + solidity*0.3 + edge_strength*0.2 (mapped to 0.4-0.95)'
+                }
         }
 
 

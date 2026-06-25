@@ -6,6 +6,15 @@
 let currentFile = null;
 let currentAnalysisData = null;
 let startTime = null;
+let usePdfConversion = false;
+let currentConvertedPages = [];
+let selectedConvertedPageIndex = null;
+// Separate state for PDF-only conversion panel
+let currentPdfOnlyFile = null;
+let currentPdfOnlyConvertedPages = [];
+let selectedPdfOnlyPageIndex = null;
+// Track the source info for the current analysis (original filename, page, pdf flag)
+let currentAnalysisSource = null;
 
 // ===== Page State Management =====
 function showState(stateName) {
@@ -41,6 +50,10 @@ document.addEventListener('DOMContentLoaded', () => {
   const cameraModal = document.getElementById('camera-modal');
   const cameraClose = document.getElementById('camera-close');
   const cameraCloseFromBtn = document.querySelector('[id="camera-close"]');
+  const imageYesBtn = document.getElementById('image-yes-btn');
+  const imageNoBtn = document.getElementById('image-no-btn');
+  const imageChoiceText = document.getElementById('image-choice-text');
+  const pdfConverterPanel = document.getElementById('pdf-converter-panel');
 
   // Browse button
   if (browseBtn) {
@@ -58,6 +71,17 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     });
   }
+
+  // Image/PDF choice buttons
+  if (imageYesBtn) {
+    imageYesBtn.addEventListener('click', () => setUsePdfConversion(false));
+  }
+  if (imageNoBtn) {
+    imageNoBtn.addEventListener('click', () => setUsePdfConversion(true));
+  }
+
+  // Initialize upload mode
+  setUsePdfConversion(false);
 
   // Drag and drop
   if (dropzone) {
@@ -159,6 +183,52 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
+  const convertBtn = document.getElementById('convert-btn');
+  const downloadAllZipBtn = document.getElementById('download-all-zip-btn');
+
+  // Convert PDF pages button
+  if (convertBtn) {
+    convertBtn.addEventListener('click', () => {
+      convertPdfPages();
+    });
+  }
+
+  if (downloadAllZipBtn) {
+    downloadAllZipBtn.addEventListener('click', () => {
+      downloadAllConvertedPagesZip();
+    });
+  }
+
+  // PDF-only panel elements
+  const pdfOnlyInput = document.getElementById('pdf-only-input');
+  const pdfOnlyConvertBtn = document.getElementById('pdf-only-convert-btn');
+  const pdfOnlyDownloadZipBtn = document.getElementById('pdf-only-download-zip-btn');
+
+  if (pdfOnlyInput) {
+    pdfOnlyInput.addEventListener('change', (e) => {
+      if (e.target.files.length > 0) {
+        currentPdfOnlyFile = e.target.files[0];
+        // Show convert button when a PDF is selected
+        if (pdfOnlyConvertBtn) pdfOnlyConvertBtn.style.display = 'inline-flex';
+        if (pdfOnlyDownloadZipBtn) pdfOnlyDownloadZipBtn.style.display = 'none';
+        const panel = document.getElementById('pdf-only-conversion-results');
+        if (panel) panel.style.display = 'none';
+      }
+    });
+  }
+
+  if (pdfOnlyConvertBtn) {
+    pdfOnlyConvertBtn.addEventListener('click', () => {
+      convertPdfOnlyPages();
+    });
+  }
+
+  if (pdfOnlyDownloadZipBtn) {
+    pdfOnlyDownloadZipBtn.addEventListener('click', () => {
+      downloadAllPdfOnlyConvertedPagesZip();
+    });
+  }
+
   // Comparison button
   const compareBtn = document.getElementById('compare-btn');
   if (compareBtn) {
@@ -196,7 +266,7 @@ async function downloadResultsPdf() {
     }
   }
 
-  const { predictions = [], statistics = {}, model = 'CNN-only' } = unwrapData(currentAnalysisData);
+  const { predictions = [], statistics = {}, model = 'CNN-only', features = {}, metadata = {} } = unwrapData(currentAnalysisData);
   const title = 'DOCUGRAPH CNN-Only Report';
   const filename = `docugraph-cnn-report-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.pdf`;
 
@@ -257,7 +327,11 @@ async function downloadResultsPdf() {
     `Average Confidence: ${formatPercent(statistics.avg_confidence || 0)}`,
     `Headers: ${statistics.type_distribution?.Title || 0}`,
     `Paragraphs: ${statistics.type_distribution?.Text || 0}`,
-    `Tables/Figures: ${(statistics.type_distribution?.Table || 0) + (statistics.type_distribution?.Figure || 0)}`
+    `Tables/Figures: ${(statistics.type_distribution?.Table || 0) + (statistics.type_distribution?.Figure || 0)}`,
+    `Analysis Type: ${metadata.analysis_type || 'CNN-only'}`,
+    `Image Shape: ${metadata.image_shape?.join('×') || 'N/A'}`,
+    `Adjacency Count: ${features.connectivity_features?.adjacency_count || 0}`,
+    `Reading Order Blocks: ${features.connectivity_features?.reading_order?.length || 0}`
   ];
   summaryLines.forEach((line) => {
     doc.text(line, margin, y);
@@ -436,23 +510,455 @@ async function capturePreviewImage() {
   }
 }
 
+// File helper utilities
+function isPdf(file) {
+  return Boolean(file && (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')));
+}
+
+function isImageFile(file) {
+  return Boolean(file && (file.type.startsWith('image/') || /\.(jpg|jpeg|png|webp|bmp)$/i.test(file.name)));
+}
+
+function setUsePdfConversion(enabled) {
+  usePdfConversion = enabled;
+
+  const yesBtn = document.getElementById('image-yes-btn');
+  const noBtn = document.getElementById('image-no-btn');
+  const choiceText = document.getElementById('image-choice-text');
+  const converterPanel = document.getElementById('pdf-converter-panel');
+  const fileInputEl = document.getElementById('file-input');
+
+  if (yesBtn && noBtn) {
+    yesBtn.classList.toggle('active', !enabled);
+    noBtn.classList.toggle('active', enabled);
+  }
+
+  if (choiceText) {
+    choiceText.textContent = enabled
+      ? 'Upload a PDF and convert pages into images for download or CNN analysis.'
+      : 'Upload a JPG / PNG / WebP / BMP image directly for analysis.';
+  }
+
+  if (converterPanel) {
+    converterPanel.style.display = enabled ? 'block' : 'none';
+  }
+
+  if (fileInputEl) {
+    fileInputEl.accept = enabled ? '.pdf' : '.jpg,.jpeg,.png,.webp,.bmp';
+    fileInputEl.value = '';
+  }
+
+  // Clear any previously selected file or conversion state when switching mode
+  currentFile = null;
+  currentConvertedPages = [];
+  selectedConvertedPageIndex = null;
+
+  const fileInfo = document.getElementById('file-info');
+  const actionButtons = document.getElementById('action-buttons');
+  const conversionResults = document.getElementById('conversion-results');
+  const convertBtn = document.getElementById('convert-btn');
+  const analyzeBtn = document.getElementById('analyze-btn');
+  const downloadAllZipBtn = document.getElementById('download-all-zip-btn');
+
+  if (fileInfo) fileInfo.style.display = 'none';
+  if (actionButtons) actionButtons.style.display = 'none';
+  if (conversionResults) conversionResults.style.display = 'none';
+  if (convertBtn) convertBtn.style.display = enabled ? 'inline-flex' : 'none';
+  if (analyzeBtn) analyzeBtn.style.display = enabled ? 'none' : 'inline-flex';
+  if (downloadAllZipBtn) downloadAllZipBtn.style.display = 'none';
+}
+
+async function ensurePdfjs() {
+  if (window.pdfjsLib) return window.pdfjsLib;
+
+  const src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.122/pdf.min.js';
+  if (!document.querySelector(`script[src="${src}"]`)) {
+    await new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = src;
+      s.crossOrigin = 'anonymous';
+      s.onload = resolve;
+      s.onerror = () => reject(new Error('Failed to load PDF.js from CDN'));
+      document.head.appendChild(s);
+    });
+  }
+
+  if (window.pdfjsLib) {
+    if (window.pdfjsLib.GlobalWorkerOptions) {
+      window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.122/pdf.worker.min.js';
+    }
+    return window.pdfjsLib;
+  }
+
+  return null;
+}
+
 // Handle file selection
-function handleFileSelected(file) {
-  if (!file.type.startsWith('image/')) {
-    alert('Please select an image file');
-    return;
+async function handleFileSelected(file, options = {}) {
+  if (usePdfConversion) {
+    if (!isPdf(file)) {
+      alert('Please select a PDF file for conversion.');
+      return;
+    }
+  } else {
+    if (!isImageFile(file)) {
+      alert('Please select an image file.');
+      return;
+    }
   }
 
   currentFile = file;
+  currentConvertedPages = [];
+  selectedConvertedPageIndex = null;
+  // Record source metadata for analysis traceability
+  currentAnalysisSource = {
+    filename: file.name,
+    size: file.size,
+    type: file.type || (isPdf(file) ? 'application/pdf' : 'image/*'),
+    isPdf: isPdf(file),
+    uploadedAt: new Date().toISOString()
+  };
   document.getElementById('file-name').textContent = file.name;
   document.getElementById('file-size').textContent = (file.size / 1024 / 1024).toFixed(2) + ' MB';
   document.getElementById('file-info').style.display = 'block';
-  document.getElementById('action-buttons').style.display = 'flex';
+  // Show action buttons when a file is selected
+  const actionButtonsEl = document.getElementById('action-buttons');
+  if (actionButtonsEl) actionButtonsEl.style.display = 'flex';
+  document.getElementById('file-info').style.borderColor = usePdfConversion ? 'var(--green-500)' : '';
+  document.getElementById('file-info').style.background = usePdfConversion ? 'var(--green-50)' : '';
+
+  const convertBtn = document.getElementById('convert-btn');
+  const analyzeBtn = document.getElementById('analyze-btn');
+  const downloadAllZipBtn = document.getElementById('download-all-zip-btn');
+
+  if (usePdfConversion) {
+    if (convertBtn) convertBtn.style.display = 'inline-flex';
+    if (analyzeBtn) analyzeBtn.style.display = 'none';
+    if (downloadAllZipBtn) downloadAllZipBtn.style.display = 'none';
+    document.getElementById('conversion-results').style.display = 'none';
+  } else {
+    if (convertBtn) convertBtn.style.display = 'none';
+    if (analyzeBtn) analyzeBtn.style.display = 'inline-flex';
+    if (downloadAllZipBtn) downloadAllZipBtn.style.display = 'none';
+    document.getElementById('conversion-results').style.display = 'none';
+  }
 }
 
-// ===== CNN Analysis =====
+async function ensureJSZip() {
+  if (window.JSZip) return window.JSZip;
+  const src = 'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js';
+  if (!document.querySelector(`script[src="${src}"]`)) {
+    await new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = src;
+      s.crossOrigin = 'anonymous';
+      s.onload = resolve;
+      s.onerror = () => reject(new Error('Failed to load JSZip from CDN'));
+      document.head.appendChild(s);
+    });
+  }
+  return window.JSZip;
+}
+
+async function renderConvertedPagesList() {
+  const container = document.getElementById('converted-pages-list');
+  const conversionResults = document.getElementById('conversion-results');
+  const downloadAllZipBtn = document.getElementById('download-all-zip-btn');
+  const analyzeBtn = document.getElementById('analyze-btn');
+
+  if (!container) return;
+  if (!currentConvertedPages.length) {
+    container.innerHTML = '<p style="color:#6b7280;">No converted pages to display yet. Press Convert PDF Pages to start.</p>';
+    if (conversionResults) conversionResults.style.display = 'none';
+    if (downloadAllZipBtn) downloadAllZipBtn.style.display = 'none';
+    if (analyzeBtn) analyzeBtn.style.display = 'none';
+    return;
+  }
+
+  if (conversionResults) conversionResults.style.display = 'block';
+  if (downloadAllZipBtn) downloadAllZipBtn.style.display = 'inline-flex';
+  if (analyzeBtn) analyzeBtn.style.display = selectedConvertedPageIndex !== null ? 'inline-flex' : 'none';
+
+  container.innerHTML = currentConvertedPages.map((page, idx) => {
+    const selectedClass = idx === selectedConvertedPageIndex ? 'selected' : '';
+    return `
+      <article class="page-card ${selectedClass}" data-index="${idx}">
+        <img src="${page.image}" alt="Converted page ${page.page}" loading="lazy">
+        <div class="page-card-info">
+          <div>
+            <strong>Page ${page.page}</strong>
+            <span>${page.filename}</span>
+          </div>
+          <div class="page-card-actions">
+            <button type="button" class="btn btn-primary select-page-btn" data-index="${idx}">Select for Analysis</button>
+            <a href="${page.image}" download="${page.filename}" class="btn btn-ghost">Download</a>
+          </div>
+        </div>
+      </article>
+    `;
+  }).join('');
+
+  container.querySelectorAll('.select-page-btn').forEach((button) => {
+    button.addEventListener('click', async (event) => {
+      const index = Number(event.currentTarget.dataset.index);
+      await selectConvertedPage(index);
+    });
+  });
+}
+
+async function selectConvertedPage(index) {
+  if (index < 0 || index >= currentConvertedPages.length) return;
+
+  selectedConvertedPageIndex = index;
+  const page = currentConvertedPages[index];
+  currentFile = await dataUrlToFile(page.image, page.filename);
+
+  // Track that analysis source is a converted page and include original info
+  currentAnalysisSource = {
+    filename: page.filename,
+    page: page.page,
+    fromPdf: true,
+    originalPdf: page.original_pdf || null,
+    uploadedAt: new Date().toISOString()
+  };
+
+  document.getElementById('file-name').textContent = page.filename;
+  document.getElementById('file-size').textContent = 'Converted page selected';
+  document.getElementById('file-info').style.display = 'block';
+  document.getElementById('action-buttons').style.display = 'flex';
+  document.getElementById('analyze-btn').style.display = 'inline-flex';
+  document.getElementById('convert-btn').style.display = 'none';
+  const downloadAllZipBtn = document.getElementById('download-all-zip-btn');
+  if (downloadAllZipBtn) downloadAllZipBtn.style.display = 'inline-flex';
+
+  renderConvertedPagesList();
+}
+
+async function convertPdfPages() {
+  if (!currentFile || !isPdf(currentFile)) {
+    alert('Please upload a PDF file before converting pages.');
+    return;
+  }
+
+  const convertBtn = document.getElementById('convert-btn');
+  if (convertBtn) {
+    convertBtn.disabled = true;
+    convertBtn.textContent = 'Converting…';
+  }
+
+  try {
+    const formData = new FormData();
+    formData.append('pdf', currentFile);
+
+    const response = await fetch(`${window.BACKEND_URL}/api/convert/pdf`, {
+      method: 'POST',
+      body: formData
+    });
+
+    if (!response.ok) {
+      const errorPayload = await response.text();
+      throw new Error(`Conversion failed: ${response.status} ${response.statusText} - ${errorPayload}`);
+    }
+
+    const data = await response.json();
+    if (!data.success) {
+      throw new Error(data.error || 'PDF conversion returned an error');
+    }
+
+    currentConvertedPages = data.pages || [];
+    selectedConvertedPageIndex = null;
+
+    if (!currentConvertedPages.length) {
+      throw new Error('No pages were converted from the PDF file.');
+    }
+
+    renderConvertedPagesList();
+  } catch (error) {
+    console.error('PDF conversion error:', error);
+    alert('⚠️ PDF Conversion Error:\n' + error.message);
+  } finally {
+    if (convertBtn) {
+      convertBtn.disabled = false;
+      convertBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 14l2 2 4-4"/><path d="M4 4h16v16H4z"/></svg> Convert PDF Pages';
+    }
+  }
+}
+
+// --- PDF-only conversion (separate from CNN analysis flow) ---
+async function convertPdfOnlyPages() {
+  if (!currentPdfOnlyFile || !isPdf(currentPdfOnlyFile)) {
+    alert('Please select a PDF file in the PDF → Images section before converting pages.');
+    return;
+  }
+
+  const convertBtn = document.getElementById('pdf-only-convert-btn');
+  if (convertBtn) {
+    convertBtn.disabled = true;
+    convertBtn.textContent = 'Converting…';
+  }
+
+  try {
+    const formData = new FormData();
+    formData.append('pdf', currentPdfOnlyFile);
+
+    const response = await fetch(`${window.BACKEND_URL}/api/convert/pdf`, {
+      method: 'POST',
+      body: formData
+    });
+
+    if (!response.ok) {
+      const errorPayload = await response.text();
+      throw new Error(`Conversion failed: ${response.status} ${response.statusText} - ${errorPayload}`);
+    }
+
+    const data = await response.json();
+    if (!data.success) {
+      throw new Error(data.error || 'PDF conversion returned an error');
+    }
+
+    currentPdfOnlyConvertedPages = data.pages || [];
+    selectedPdfOnlyPageIndex = null;
+
+    if (!currentPdfOnlyConvertedPages.length) {
+      throw new Error('No pages were converted from the PDF file.');
+    }
+
+    renderPdfOnlyConvertedPagesList();
+  } catch (error) {
+    console.error('PDF-only conversion error:', error);
+    alert('⚠️ PDF Conversion Error:\n' + error.message);
+  } finally {
+    if (convertBtn) {
+      convertBtn.disabled = false;
+      convertBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 14l2 2 4-4"/><path d="M4 4h16v16H4z"/></svg> Convert PDF Pages';
+    }
+  }
+}
+
+async function renderPdfOnlyConvertedPagesList() {
+  const container = document.getElementById('pdf-only-converted-pages-list');
+  const resultsPanel = document.getElementById('pdf-only-conversion-results');
+  const downloadBtn = document.getElementById('pdf-only-download-zip-btn');
+
+  if (!container) return;
+  if (!currentPdfOnlyConvertedPages.length) {
+    container.innerHTML = '<p style="color:#6b7280;">No converted pages to display yet.</p>';
+    if (resultsPanel) resultsPanel.style.display = 'none';
+    if (downloadBtn) downloadBtn.style.display = 'none';
+    return;
+  }
+
+  if (resultsPanel) resultsPanel.style.display = 'block';
+  if (downloadBtn) downloadBtn.style.display = 'inline-flex';
+
+  container.innerHTML = currentPdfOnlyConvertedPages.map((page, idx) => {
+    const selectedClass = idx === selectedPdfOnlyPageIndex ? 'selected' : '';
+    return `
+      <article class="page-card ${selectedClass}" data-index="${idx}">
+        <img src="${page.image}" alt="Converted page ${page.page}" loading="lazy">
+        <div class="page-card-info">
+          <div>
+            <strong>Page ${page.page}</strong>
+            <span>${page.filename}</span>
+          </div>
+          <div class="page-card-actions">
+            <a href="${page.image}" download="${page.filename}" class="btn btn-ghost">Download</a>
+          </div>
+        </div>
+      </article>
+    `;
+  }).join('');
+}
+
+async function downloadAllPdfOnlyConvertedPagesZip() {
+  if (!currentPdfOnlyConvertedPages.length) {
+    alert('No converted pages available to download.');
+    return;
+  }
+
+  const JSZipConstructor = await ensureJSZip();
+  if (!JSZipConstructor) {
+    alert('ZIP export requires JSZip. Please check your network connection.');
+    return;
+  }
+
+  const zip = new JSZipConstructor();
+  currentPdfOnlyConvertedPages.forEach((page) => {
+    const base64Data = extractBase64(page.image);
+    zip.file(page.filename, base64Data, { base64: true });
+  });
+
+  const blob = await zip.generateAsync({ type: 'blob' });
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = `pdf-only-converted-pages-${new Date().toISOString().slice(0, 10)}.zip`;
+  document.body.appendChild(link);
+  link.click();
+  URL.revokeObjectURL(link.href);
+  link.remove();
+}
+
+function extractBase64(dataUrl) {
+  const parts = dataUrl.split(',');
+  return parts.length > 1 ? parts[1] : '';
+}
+
+async function downloadAllConvertedPagesZip() {
+  if (!currentConvertedPages.length) {
+    alert('No converted pages available to download.');
+    return;
+  }
+
+  const JSZipConstructor = await ensureJSZip();
+  if (!JSZipConstructor) {
+    alert('ZIP export requires JSZip. Please check your network connection.');
+    return;
+  }
+
+  const zip = new JSZipConstructor();
+  currentConvertedPages.forEach((page) => {
+    const base64Data = extractBase64(page.image);
+    zip.file(page.filename, base64Data, { base64: true });
+  });
+
+  const blob = await zip.generateAsync({ type: 'blob' });
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = `converted-pages-${new Date().toISOString().slice(0, 10)}.zip`;
+  document.body.appendChild(link);
+  link.click();
+  URL.revokeObjectURL(link.href);
+  link.remove();
+}
+
+async function dataUrlToFile(dataUrl, filename) {
+  const [header, base64Data] = dataUrl.split(',');
+  const mimeMatch = header.match(/:(.*?);/);
+  const mimeType = mimeMatch ? mimeMatch[1] : 'application/octet-stream';
+  const byteString = atob(base64Data);
+  const byteNumbers = new Array(byteString.length);
+  for (let i = 0; i < byteString.length; i += 1) {
+    byteNumbers[i] = byteString.charCodeAt(i);
+  }
+  const byteArray = new Uint8Array(byteNumbers);
+  return new File([byteArray], filename, { type: mimeType });
+}
+
 async function performCNNAnalysis() {
-  if (!currentFile) return;
+  if (!currentFile) {
+    alert('Please select a file before running analysis.');
+    return;
+  }
+
+  if (usePdfConversion && isPdf(currentFile)) {
+    alert('Please select a converted PDF page from the list before running analysis.');
+    return;
+  }
+
+  if (!usePdfConversion && !isImageFile(currentFile)) {
+    alert('Image mode is enabled. Please upload an image file first.');
+    return;
+  }
 
   startTime = Date.now();
   showState('processing');
@@ -461,11 +967,16 @@ async function performCNNAnalysis() {
   const formData = new FormData();
   formData.append('image', currentFile);  // Backend expects 'image' field
   formData.append('mode', 'cnn-only');
-
-  // Simulate progress updates
-  const progressInterval = setInterval(() => {
-    updateProgressStatus(Math.floor(Math.random() * 3));
-  }, 500);
+  // Attach source metadata so backend results are traceable to the uploaded file
+  if (!currentAnalysisSource && currentFile) {
+    currentAnalysisSource = {
+      filename: currentFile.name,
+      size: currentFile.size,
+      isPdf: isPdf(currentFile) || false,
+      uploadedAt: new Date().toISOString()
+    };
+  }
+  formData.append('source', JSON.stringify(currentAnalysisSource || {}));
 
   try {
     // Create fetch with 60-second timeout (Detectron2 model loads on first run)
@@ -492,7 +1003,6 @@ async function performCNNAnalysis() {
     }
 
     clearTimeout(timeoutId);
-    clearInterval(progressInterval);
 
     if (!response.ok) {
       throw new Error(`Analysis failed: ${response.status} ${response.statusText}`);
@@ -507,26 +1017,27 @@ async function performCNNAnalysis() {
 
     currentAnalysisData = data;
 
-    // Simulate final steps
-    for (let i = 0; i < 5; i++) {
-      updateProgressStatus(i);
-      await new Promise(r => setTimeout(r, 100));
-    }
+    // Mark progress complete
+    updateProgressStatus(3);
 
     displayAnalysisResults(data);
     showState('results');
 
     // Update elapsed time
     const elapsed = Math.round((Date.now() - startTime) / 1000);
+    const analysisTimeMs = elapsed * 1000;
     const analysisTimeEl = document.getElementById('analysis-time');
-    if (analysisTimeEl) analysisTimeEl.textContent = (elapsed * 1000) + 'ms';
+    if (analysisTimeEl) analysisTimeEl.textContent = `${analysisTimeMs}ms`;
+
+    // Preserve runtime analysis time in saved result data
+    data.statistics = data.statistics || {};
+    data.statistics.analysis_time_ms = analysisTimeMs;
 
     // Save to session storage for results page
     sessionStorage.setItem('cnnAnalysisResults', JSON.stringify(data));
 
   } catch (error) {
     console.error('❌ Analysis error:', error);
-    clearInterval(progressInterval);
     
     // Better error messaging
     let errorMsg = error.message;
@@ -574,14 +1085,16 @@ function unwrapData(raw) {
   if (raw.layout_analysis) {
     const inner = raw.layout_analysis;
     return {
-      success:     inner.success,
-      predictions: inner.predictions || [],
-      statistics:  inner.statistics  || {},
-      model:       inner.model       || raw.model_variant || 'CNN-only',
+      success:      inner.success,
+      predictions:  inner.predictions || [],
+      statistics:   inner.statistics  || {},
+      model:        inner.model       || raw.model_variant || 'CNN-only',
+      architecture: raw.architecture || '',
       feature_maps: inner.feature_maps || {},
       shape_detection: raw.shape_detection,
-      features:        raw.features,
-      ocrText:         raw.ocrText || ''
+      features:         raw.features,
+      metadata:         raw.metadata || {},
+      ocrText:          raw.ocrText || ''
     };
   }
   // Already flat (direct endpoint response)
@@ -643,6 +1156,202 @@ function displayAnalysisResults(rawData) {
   if (cnnRegionsEl) cnnRegionsEl.textContent = totalBlocks;
   if (cnnAvgConfEl) cnnAvgConfEl.textContent = Math.round(avgConf * 100) + '%';
   if (cnnFeaturesEl) cnnFeaturesEl.textContent = Object.keys(typeDistribution).length;
+
+  renderCnnResultTabs(rawData);
+}
+
+function initResultTabs() {
+  const buttons = document.querySelectorAll('.result-output .tabs button');
+  buttons.forEach((button) => {
+    button.addEventListener('click', () => setActiveResultTab(button.dataset.tab));
+  });
+}
+
+function setActiveResultTab(tabId) {
+  const buttons = document.querySelectorAll('.result-output .tabs button');
+  const panes = document.querySelectorAll('.result-output .tab-body > div');
+  buttons.forEach((button) => {
+    button.classList.toggle('active', button.dataset.tab === tabId);
+  });
+  panes.forEach((pane) => {
+    pane.style.display = pane.id === `tab-${tabId}` ? 'block' : 'none';
+  });
+}
+
+function safeJsonString(value) {
+  return JSON.stringify(value, null, 2)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+function renderCnnResultTabs(rawData) {
+  const data = unwrapData(rawData);
+  const features = data.features || {};
+  const connectivity = features.connectivity_features || {};
+  const metadata = data.metadata || {};
+
+  const structureEl = document.getElementById('structure-graph-content');
+  if (structureEl) {
+    const orderList = connectivity.reading_order || [];
+    structureEl.innerHTML = `
+      <div style="display:grid; gap:12px;">
+        <div><strong>Total Regions:</strong> ${data.predictions.length}</div>
+        <div><strong>Layout Accuracy:</strong> ${formatPercent(data.statistics.layout_accuracy || 0)}</div>
+        <div><strong>Adjacency Relationships:</strong> ${connectivity.adjacency_count || 0}</div>
+        <div><strong>Reading order:</strong> ${orderList.length ? 'Detected' : 'Unavailable'}</div>
+      </div>
+    `;
+
+    if (orderList.length) {
+      const rows = orderList.map((item) => `
+        <tr>
+          <td>${item.order + 1}</td>
+          <td>${item.type || 'Unknown'}</td>
+          <td>${formatPercent(item.confidence || 0)}</td>
+        </tr>`).join('');
+      structureEl.innerHTML += `
+        <table style="width:100%; margin-top:14px; border-collapse:collapse;">
+          <thead><tr><th style="text-align:left; padding:8px; border:1px solid #e5e7eb;">Order</th><th style="text-align:left; padding:8px; border:1px solid #e5e7eb;">Region Type</th><th style="text-align:left; padding:8px; border:1px solid #e5e7eb;">Confidence</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      `;
+    }
+  }
+
+  const regionEl = document.getElementById('region-analysis-content');
+  if (regionEl) {
+    const rows = (data.predictions || []).slice(0, 12).map((pred, idx) => {
+      const bbox = Array.isArray(pred.bbox) ? pred.bbox.map((c) => Math.round(c)).join(', ') : 'N/A';
+      return `
+        <tr>
+          <td>${idx + 1}</td>
+          <td>${pred.type || 'Unknown'}</td>
+          <td>${formatPercent(pred.confidence || 0)}</td>
+          <td>${bbox}</td>
+        </tr>`;
+    }).join('');
+
+    regionEl.innerHTML = data.predictions.length
+      ? `
+        <table style="width:100%; border-collapse:collapse;">
+          <thead><tr><th style="text-align:left; padding:8px; border:1px solid #e5e7eb;">#</th><th style="text-align:left; padding:8px; border:1px solid #e5e7eb;">Type</th><th style="text-align:left; padding:8px; border:1px solid #e5e7eb;">Confidence</th><th style="text-align:left; padding:8px; border:1px solid #e5e7eb;">BBox</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+        <p style="margin-top:12px; color:#6b7280; font-size:13px;">Showing ${Math.min(data.predictions.length, 12)} of ${data.predictions.length} regions.</p>
+      `
+      : '<p style="color:#6b7280;">No region predictions available.</p>';
+  }
+
+  const connectivityEl = document.getElementById('connectivity-content');
+  if (connectivityEl) {
+    const gaps = Array.isArray(connectivity.spatial_gaps) ? connectivity.spatial_gaps : [];
+    const gapStats = gaps.length ? {
+      min: Math.min(...gaps).toFixed(0),
+      max: Math.max(...gaps).toFixed(0),
+      avg: (gaps.reduce((sum, v) => sum + v, 0) / gaps.length).toFixed(0)
+    } : { min: 'N/A', max: 'N/A', avg: 'N/A' };
+
+    connectivityEl.innerHTML = `
+      <div style="display:grid; gap:12px;">
+        <div><strong>Adjacency Count:</strong> ${connectivity.adjacency_count || 0}</div>
+        <div><strong>Spatial Gaps:</strong> ${gapStats.min} / ${gapStats.avg} / ${gapStats.max} px</div>
+        <div><strong>Reading Order Blocks:</strong> ${connectivity.reading_order?.length || 0}</div>
+      </div>
+    `;
+  }
+
+  const metricsEl = document.getElementById('detailed-metrics-content');
+  if (metricsEl) {
+    const stats = data.statistics || {};
+    const types = stats.type_distribution || {};
+    const shapeDetection = data.shape_detection || {};
+    const shapeTypes = Array.isArray(shapeDetection.shapes)
+      ? [...new Set(shapeDetection.shapes.map((s) => s.type || 'Unknown'))].slice(0, 10)
+      : [];
+    const firstShapes = Array.isArray(shapeDetection.shapes) ? shapeDetection.shapes.slice(0, 5) : [];
+    console.debug('Rendering detailed metrics', { stats, types, shapeDetection, data });
+
+    const objectRows = [
+      ['Model', data.model || 'CNN-only'],
+      ['Architecture', data.architecture || metadata.architecture || 'Unknown'],
+      ['Analysis Type', metadata.analysis_type || data.analysis_type || 'CNN-only'],
+      ['Image Shape', metadata.image_shape ? metadata.image_shape.join('×') : 'Unknown'],
+      ['Includes Graphs', metadata.includes_graphs ? 'Yes' : 'No'],
+      ['Includes Connectors', metadata.includes_connectors ? 'Yes' : 'No'],
+      ['Total Regions', stats.total_blocks || 0],
+      ['Average Confidence', formatPercent(stats.avg_confidence || 0)],
+      ['Header Count', types.Title || 0],
+      ['Paragraph Count', types.Text || 0],
+      ['Tables/Figures', (types.Table || 0) + (types.Figure || 0)],
+      ['Feature Types', Object.keys(types).length]
+    ];
+
+    const rows = objectRows.map(([label, value]) => `
+      <tr>
+        <td style="padding:8px; border:1px solid #e5e7eb; font-weight:600; width:40%;">${label}</td>
+        <td style="padding:8px; border:1px solid #e5e7eb;">${value}</td>
+      </tr>`).join('');
+
+    const shapeSampleRows = firstShapes.map((shape, idx) => {
+      const bbox = Array.isArray(shape.bbox) ? shape.bbox.map((c) => Math.round(c)).join(', ') : 'N/A';
+      return `
+        <tr>
+          <td style="padding:8px; border:1px solid #e5e7eb;">${idx + 1}</td>
+          <td style="padding:8px; border:1px solid #e5e7eb;">${shape.type || 'Unknown'}</td>
+          <td style="padding:8px; border:1px solid #e5e7eb;">${shape.area || 'N/A'}</td>
+          <td style="padding:8px; border:1px solid #e5e7eb;">${bbox}</td>
+        </tr>`;
+    }).join('');
+
+    const rawDetails = {
+      shape_detection: shapeDetection,
+      metadata,
+      connectivity
+    };
+    const escapedRawDetails = safeJsonString(rawDetails);
+
+    metricsEl.innerHTML = `
+      <table style="width:100%; border-collapse:collapse; margin-bottom:14px;">
+        <tbody>${rows}</tbody>
+      </table>
+      <div style="font-size:13px; color:#6b7280; margin-bottom:14px;">If some fields are blank, it means this analysis did not return that statistic.</div>
+      <div style="display:grid; gap:14px;">
+        <div style="background:#f8fafc; border:1px solid #e5e7eb; border-radius:12px; padding:14px;">
+          <strong style="display:block; margin-bottom:8px; color:#111827;">Shape Detection Summary</strong>
+          <div style="display:grid; gap:8px; font-size:13px; color:#334155;">
+            <div><strong>Model:</strong> ${shapeDetection.model || 'Unknown'}</div>
+            <div><strong>Shape Count:</strong> ${shapeDetection.shape_count || 0}</div>
+            <div><strong>Shape Types:</strong> ${shapeTypes.length ? shapeTypes.join(', ') : 'Unavailable'}</div>
+          </div>
+        </div>
+        ${shapeSampleRows ? `
+        <div style="background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:14px;">
+          <strong style="display:block; margin-bottom:8px; color:#111827;">Sample Detected Shapes</strong>
+          <table style="width:100%; border-collapse:collapse; font-size:13px;">
+            <thead>
+              <tr>
+                <th style="padding:8px; border:1px solid #e5e7eb; text-align:left;">#</th>
+                <th style="padding:8px; border:1px solid #e5e7eb; text-align:left;">Type</th>
+                <th style="padding:8px; border:1px solid #e5e7eb; text-align:left;">Area</th>
+                <th style="padding:8px; border:1px solid #e5e7eb; text-align:left;">BBox</th>
+              </tr>
+            </thead>
+            <tbody>${shapeSampleRows}</tbody>
+          </table>
+        </div>` : `
+        <div style="background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:14px; color:#475569; font-size:13px;">
+          No sample shape details available.
+        </div>`}
+        <details style="background:#f8fafc; border:1px solid #e5e7eb; border-radius:12px; padding:14px;">
+          <summary style="font-weight:600; cursor:pointer; color:#0f172a;">Show raw detailed JSON data</summary>
+          <pre style="background:#ffffff; border:1px solid #e5e7eb; border-radius:8px; padding:14px; overflow-x:auto; max-height:320px; overflow-y:auto; margin-top:12px;">${escapedRawDetails}</pre>
+        </details>
+      </div>
+    `;
+  }
+
+  setActiveResultTab('structure');
 }
 
 // Display bounding boxes with proper coordinate normalization
@@ -822,6 +1531,8 @@ function snapPhoto() {
 }
 
 // ===== Results Page Functionality =====
+document.addEventListener('DOMContentLoaded', initResultTabs);
+
 if (window.location.pathname.includes('results_cnn.html')) {
   document.addEventListener('DOMContentLoaded', () => {
     // Load results from session storage or localStorage

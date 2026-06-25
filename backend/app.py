@@ -14,7 +14,14 @@ from dotenv import load_dotenv
 import cv2
 import numpy as np
 from PIL import Image
-from transformers import AutoTokenizer, AutoModel
+
+# Optional PDF conversion support
+try:
+    import pdf2image
+    HAS_PDF2IMAGE = True
+except ImportError:
+    HAS_PDF2IMAGE = False
+    print("⚠ Warning: pdf2image not installed. PDF uploads will not convert on the backend.")
 
 # Import advanced image processing
 from advanced_image_processing import (
@@ -221,25 +228,46 @@ class SemanticEmbeddingEngine:
     """Cross-lingual semantic embedding generation"""
     
     def __init__(self):
-        """Initialize embedding model"""
+        """Initialize embedding model (lazy-loaded)"""
+        self.model = None
+        self.tokenizer = None
+        self.device = None
+        self.model_name = "sentence-transformers/xlm-r-large-v1"
+        self._initialized = False
+        self._init_embedding_model()
+    
+    def _init_embedding_model(self):
+        """Actually load the embedding model"""
+        if self._initialized:
+            return
+        
         try:
-            self.model_name = "sentence-transformers/xlm-r-large-v1"
+            # Import transformers only when needed
+            from transformers import AutoTokenizer, AutoModel
+            import torch
+            
             self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
             self.model = AutoModel.from_pretrained(self.model_name)
             self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
             self.model.to(self.device)
             self.model.eval()
+            self._initialized = True
             print("✓ Semantic embedding model loaded")
         except Exception as e:
             print(f"⚠ Embedding model initialization failed: {e}")
             self.model = None
+            self._initialized = True  # Mark as attempted
     
     def get_embedding(self, text, language='en'):
         """Generate 768-dimensional semantic embedding"""
+        self._init_embedding_model()
+        
         if self.model is None:
             return [0.0] * 768
         
         try:
+            import torch
+            
             with torch.no_grad():
                 inputs = self.tokenizer(
                     text,
@@ -373,10 +401,54 @@ class OCREngine:
 # API Endpoints
 # ===========================
 
-# Initialize models
-layout_analyzer = LayoutAnalyzer()
-embedding_engine = SemanticEmbeddingEngine()
-ocr_engine = OCREngine()
+# Initialize models (lazy-loaded to avoid startup delays)
+_layout_analyzer = None
+_embedding_engine = None
+_ocr_engine = None
+
+def get_layout_analyzer():
+    """Lazy-load layout analyzer on first use"""
+    global _layout_analyzer
+    if _layout_analyzer is None:
+        _layout_analyzer = LayoutAnalyzer()
+    return _layout_analyzer
+
+def get_embedding_engine():
+    """Lazy-load embedding engine on first use"""
+    global _embedding_engine
+    if _embedding_engine is None:
+        _embedding_engine = SemanticEmbeddingEngine()
+    return _embedding_engine
+
+def get_ocr_engine():
+    """Lazy-load OCR engine on first use"""
+    global _ocr_engine
+    if _ocr_engine is None:
+        _ocr_engine = OCREngine()
+    return _ocr_engine
+
+def convert_pdf_bytes_to_jpegs(pdf_bytes, dpi=200):
+    if not HAS_PDF2IMAGE:
+        raise RuntimeError('pdf2image is not installed; backend PDF conversion is unavailable.')
+    try:
+        images = pdf2image.convert_from_bytes(pdf_bytes, dpi=dpi)
+        if not images:
+            raise RuntimeError('No pages found in PDF')
+        jpeg_bytes = []
+        for img in images:
+            buffer = BytesIO()
+            img.save(buffer, format='JPEG', quality=90)
+            jpeg_bytes.append(buffer.getvalue())
+        return jpeg_bytes
+    except Exception as e:
+        raise RuntimeError(f'PDF conversion failed: {e}')
+
+
+def convert_pdf_bytes_to_jpeg(pdf_bytes, dpi=200):
+    pages = convert_pdf_bytes_to_jpegs(pdf_bytes, dpi=dpi)
+    if not pages:
+        raise RuntimeError('No pages available after PDF conversion')
+    return pages[0]
 
 # Initialize CNN-only analyzer
 cnn_only_analyzer = None
@@ -435,9 +507,9 @@ def health():
         'version': '6.0.0',
         'phase': 'Phase 6: Python Backend',
         'models': {
-            'layoutparser': layout_analyzer.initialized,
-            'embeddings': embedding_engine.model is not None,
-            'ocr': ocr_engine.initialized
+            'layoutparser': get_layout_analyzer().initialized,
+            'embeddings': get_embedding_engine().model is not None,
+            'ocr': get_ocr_engine().initialized
         }
     })
 
@@ -453,7 +525,7 @@ def diagnostics():
         'models': {
             'layoutparser': {
                 'available': HAS_LAYOUTPARSER,
-                'initialized': layout_analyzer.initialized if HAS_LAYOUTPARSER else False
+                'initialized': get_layout_analyzer().initialized if HAS_LAYOUTPARSER else False
             },
             'torch': {
                 'available': HAS_TORCH,
@@ -461,12 +533,12 @@ def diagnostics():
             },
             'ocr': {
                 'available': True,
-                'initialized': ocr_engine.initialized,
+                'initialized': get_ocr_engine().initialized,
                 'reason': 'Check server logs for initialization details'
             },
             'embeddings': {
                 'available': True,
-                'initialized': embedding_engine.model is not None
+                'initialized': get_embedding_engine().model is not None
             }
         },
         'recommendations': []
@@ -492,7 +564,7 @@ def diagnostics():
             elif pkg_name == 'torch':
                 diagnostics_data['recommendations'].append('Install PyTorch: pip install torch torchvision (optional for GPU)')
     
-    if not ocr_engine.initialized:
+    if not get_ocr_engine().initialized:
         diagnostics_data['recommendations'].append('OCR engine failed to initialize - check logs')
     
     return jsonify(diagnostics_data)
@@ -518,7 +590,7 @@ def analyze_layout():
             return jsonify({'error': 'Invalid image'}), 400
         
         # Analyze layout
-        result = layout_analyzer.analyze_layout(image_array)
+        result = get_layout_analyzer().analyze_layout(image_array)
         
         return jsonify(result)
     
@@ -553,7 +625,7 @@ def extract_ocr():
         print(f"✓ Image loaded: {image_array.shape}")
         
         # Check if OCR engine is initialized
-        if not ocr_engine.initialized:
+        if not get_ocr_engine().initialized:
             print("⚠ OCR engine not initialized")
             return jsonify({
                 'error': 'OCR engine not available. Please ensure easyocr is installed: pip install easyocr',
@@ -562,7 +634,7 @@ def extract_ocr():
         
         # Extract OCR
         print("🔄 Running OCR extraction...")
-        result = ocr_engine.extract_text(image_array, languages)
+        result = get_ocr_engine().extract_text(image_array, languages)
         
         if result.get('success'):
             print(f"✓ OCR completed: {result.get('region_count', 0)} regions detected")
@@ -589,7 +661,7 @@ def generate_embeddings():
         if not text:
             return jsonify({'error': 'No text provided'}), 400
         
-        embedding = embedding_engine.get_embedding(text, language)
+        embedding = get_embedding_engine().get_embedding(text, language)
         
         return jsonify({
             'text': text,
@@ -613,7 +685,7 @@ def compute_similarity():
         if not text1 or not text2:
             return jsonify({'error': 'Both texts required'}), 400
         
-        similarity = embedding_engine.compute_similarity(text1, text2)
+        similarity = get_embedding_engine().compute_similarity(text1, text2)
         
         return jsonify({
             'text1': text1,
@@ -640,8 +712,8 @@ def batch_analyze():
         for doc in documents:
             result = {
                 'id': doc.get('id'),
-                'layout': layout_analyzer.analyze_layout(np.frombuffer(base64.b64decode(doc['image']), dtype=np.uint8).reshape(doc['height'], doc['width'], 3)),
-                'embedding': embedding_engine.get_embedding(doc.get('text', ''))
+                'layout': get_layout_analyzer().analyze_layout(np.frombuffer(base64.b64decode(doc['image']), dtype=np.uint8).reshape(doc['height'], doc['width'], 3)),
+                'embedding': get_embedding_engine().get_embedding(doc.get('text', ''))
             }
             results.append(result)
         
@@ -975,7 +1047,7 @@ def analyze():
             return jsonify({'success': False, 'error': 'Invalid image'}), 400
         
         # Analyze layout
-        result = layout_analyzer.analyze_layout(image_array)
+        result = get_layout_analyzer().analyze_layout(image_array)
         
         # Ensure success flag
         if 'success' not in result:
@@ -983,6 +1055,43 @@ def analyze():
         
         return jsonify(result)
     
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/convert/pdf', methods=['POST'])
+def convert_pdf():
+    """Convert uploaded PDF to JPEG pages."""
+    if 'pdf' not in request.files:
+        return jsonify({'success': False, 'error': 'No PDF file provided'}), 400
+
+    if not HAS_PDF2IMAGE:
+        return jsonify({
+            'success': False,
+            'error': 'Backend PDF conversion unavailable. Install pdf2image and poppler to enable PDF uploads.'
+        }), 501
+
+    pdf_file = request.files['pdf']
+    pdf_bytes = pdf_file.read()
+
+    try:
+        pages = convert_pdf_bytes_to_jpegs(pdf_bytes, dpi=200)
+        converted_pages = []
+        base_name = os.path.splitext(pdf_file.filename)[0]
+        for idx, page_bytes in enumerate(pages, start=1):
+            image_b64 = base64.b64encode(page_bytes).decode('utf-8')
+            converted_pages.append({
+                'page': idx,
+                'filename': f'{base_name}-page-{idx}.jpg',
+                'image': f'data:image/jpeg;base64,{image_b64}',
+                'original_pdf': pdf_file.filename
+            })
+
+        return jsonify({
+            'success': True,
+            'page_count': len(converted_pages),
+            'pages': converted_pages
+        })
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
@@ -1002,16 +1111,44 @@ def analyze_cnn():
         
         image_file = request.files['image']
         image_bytes = image_file.read()
+
+        if image_file.filename.lower().endswith('.pdf') or image_file.mimetype == 'application/pdf':
+            if not HAS_PDF2IMAGE:
+                return jsonify({
+                    'success': False,
+                    'error': 'Backend PDF conversion unavailable. Install pdf2image and poppler to enable PDF uploads.'
+                }), 501
+            try:
+                image_bytes = convert_pdf_bytes_to_jpeg(image_bytes)
+            except Exception as e:
+                return jsonify({'success': False, 'error': str(e)}), 500
+
         image_array = cv2.imdecode(
             np.frombuffer(image_bytes, np.uint8),
             cv2.IMREAD_COLOR
         )
         
         if image_array is None:
-            return jsonify({'success': False, 'error': 'Invalid image'}), 400
+            return jsonify({'success': False, 'error': 'Invalid image or unsupported PDF conversion output'}), 400
         
-        # Analyze with CNN-only model
-        result = cnn_only_analyzer.analyze_layout_cnn_only(image_array)
+        # Analyze with CNN-only model and return full document analysis
+        result = cnn_only_analyzer.analyze_document_cnn_only(image_array)
+
+        # Attach frontend-provided source metadata (if any) so results are traceable
+        try:
+            source_json = request.form.get('source')
+            if source_json:
+                try:
+                    src = json.loads(source_json)
+                except Exception:
+                    src = {'raw': source_json}
+                # Ensure metadata key exists
+                if isinstance(result, dict):
+                    if 'metadata' not in result:
+                        result['metadata'] = {}
+                    result['metadata']['source'] = src
+        except Exception as e:
+            print(f"Warning: failed to attach source metadata: {e}")
         
         # Ensure success flag
         if 'success' not in result:
