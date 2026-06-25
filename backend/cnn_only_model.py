@@ -41,7 +41,7 @@ class CNNOnlyLayoutAnalyzer:
             self.model = lp.Detectron2LayoutModel(
                 config_path="lp://PubLayNet/faster_rcnn_ResNest50_fpn_3x",
                 model_path="lp://PubLayNet/faster_rcnn_ResNest50_fpn_3x/model_final.pth",
-                extra_config=["MODEL.ROI_HEADS.SCORE_THRESH_TEST", 0.5],
+                extra_config=[["MODEL.ROI_HEADS.SCORE_THRESH_TEST", 0.5], ["MODEL.DEVICE", "cpu"]],
                 label_map={0: "Text", 1: "Title", 2: "List", 3: "Table", 4: "Figure"}
             )
             self.initialized = True
@@ -74,18 +74,23 @@ class CNNOnlyLayoutAnalyzer:
             # Run CNN detection (Detectron2)
             layout = self.model.detect(image)
             
-            # Extract CNN predictions
+            # Extract CNN predictions with normalized bboxes
+            h, w = image_array.shape[:2]
             cnn_predictions = []
             for block in layout:
+                norm_bbox = self._normalize_bbox(block.x_1, block.y_1, block.x_2, block.y_2, w, h)
+                bw = block.x_2 - block.x_1
+                bh = block.y_2 - block.y_1
                 pred = {
                     'type': block.type,
-                    'bbox': [block.x_1, block.y_1, block.x_2, block.y_2],
+                    'bbox': norm_bbox,
+                    'bbox_px': [block.x_1, block.y_1, block.x_2, block.y_2],
                     'confidence': float(block.score) if hasattr(block, 'score') else 0.95,
-                    'area': (block.x_2 - block.x_1) * (block.y_2 - block.y_1),
+                    'area': bw * bh,
                     'features': {
-                        'width': block.x_2 - block.x_1,
-                        'height': block.y_2 - block.y_1,
-                        'aspect_ratio': (block.x_2 - block.x_1) / (block.y_2 - block.y_1) if (block.y_2 - block.y_1) > 0 else 0
+                        'width': bw,
+                        'height': bh,
+                        'aspect_ratio': bw / bh if bh > 0 else 0
                     }
                 }
                 cnn_predictions.append(pred)
@@ -158,15 +163,70 @@ class CNNOnlyLayoutAnalyzer:
             distribution[block_type] = distribution.get(block_type, 0) + 1
         return distribution
     
+    @staticmethod
+    def _normalize_bbox(x1: float, y1: float, x2: float, y2: float, img_w: int, img_h: int) -> List[float]:
+        """Convert pixel coords to 0-100 percentage values for the JS renderer."""
+        if img_w <= 0 or img_h <= 0:
+            return [0.0, 0.0, 100.0, 100.0]
+        return [
+            round(x1 / img_w * 100, 4),
+            round(y1 / img_h * 100, 4),
+            round(x2 / img_w * 100, 4),
+            round(y2 / img_h * 100, 4),
+        ]
+    
     def _fallback_analysis(self, image_array: np.ndarray) -> Dict:
-        """Fallback CNN analysis"""
+        """
+        Fallback CNN analysis when LayoutParser not available
+        Uses grid-based layout detection and contour analysis
+        """
         h, w = image_array.shape[:2]
-        return {
-            'success': True,
-            'model': 'CNN-only (Fallback)',
-            'predictions': [{
+        
+        # Convert to grayscale for edge detection
+        if len(image_array.shape) == 3:
+            gray = cv2.cvtColor(image_array, cv2.COLOR_BGR2GRAY)
+        else:
+            gray = image_array
+        
+        # Detect edges
+        edges = cv2.Canny(gray, 100, 200)
+        
+        # Find contours
+        contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        
+        predictions = []
+        
+        # Extract largest contours as blocks
+        for contour in sorted(contours, key=cv2.contourArea, reverse=True)[:5]:
+            x, y, bw, bh = cv2.boundingRect(contour)
+            
+            # Filter small contours
+            if bw < 20 or bh < 20:
+                continue
+            
+            # Normalize bbox to percentages
+            norm_bbox = self._normalize_bbox(x, y, x + bw, y + bh, w, h)
+            
+            predictions.append({
                 'type': 'Text',
-                'bbox': [0, 0, w, h],
+                'bbox': norm_bbox,
+                'bbox_px': [x, y, x + bw, y + bh],
+                'confidence': 0.65,
+                'area': bw * bh,
+                'features': {
+                    'width': bw,
+                    'height': bh,
+                    'aspect_ratio': bw / bh if bh > 0 else 0
+                }
+            })
+        
+        # If no contours detected, use full page
+        if not predictions:
+            norm_bbox = self._normalize_bbox(0, 0, w, h, w, h)
+            predictions.append({
+                'type': 'Text',
+                'bbox': norm_bbox,
+                'bbox_px': [0, 0, w, h],
                 'confidence': 0.5,
                 'area': h * w,
                 'features': {
@@ -174,14 +234,23 @@ class CNNOnlyLayoutAnalyzer:
                     'height': h,
                     'aspect_ratio': w / h if h > 0 else 0
                 }
-            }],
-            'prediction_count': 1,
+            })
+        
+        avg_confidence = np.mean([p['confidence'] for p in predictions]) if predictions else 0.5
+        
+        return {
+            'success': True,
+            'model': 'CNN-only (Fallback - Edge Detection)',
+            'predictions': predictions,
+            'prediction_count': len(predictions),
             'feature_maps': {},
             'statistics': {
-                'total_blocks': 1,
-                'avg_confidence': 0.5,
-                'type_distribution': {'Text': 1},
-                'image_shape': list(image_array.shape)
+                'total_blocks': len(predictions),
+                'avg_confidence': float(avg_confidence),
+                'type_distribution': {'Text': len(predictions)},
+                'image_shape': list(image_array.shape),
+                'fallback': True,
+                'method': 'Edge detection + contour analysis'
             }
         }
 
@@ -463,6 +532,18 @@ class CNNOnlyAnalyzer:
         self.shape_detector = CNNOnlyShapeDetector()
         self.feature_extractor = CNNOnlyFeatureExtractor()
         print("✓ CNN-only analyzer initialized")
+    
+    def analyze_layout_cnn_only(self, image_array: np.ndarray) -> Dict[str, Any]:
+        """
+        CNN-only layout analysis (wrapper for API compatibility)
+        
+        Args:
+            image_array: Input image
+        
+        Returns:
+            Dict with CNN-only layout analysis
+        """
+        return self.layout_analyzer.analyze_layout_cnn_only(image_array)
     
     def analyze_document_cnn_only(self, image_array: np.ndarray) -> Dict[str, Any]:
         """

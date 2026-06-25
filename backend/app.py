@@ -40,6 +40,14 @@ except ImportError:
     HAS_TORCH = False
     print("⚠ Warning: PyTorch not installed. Using CPU mode.")
 
+# Import CNN-only model variant
+try:
+    from cnn_only_model import CNNOnlyAnalyzer
+    HAS_CNN_ONLY = True
+except ImportError:
+    HAS_CNN_ONLY = False
+    print("⚠ Warning: cnn_only_model not available. CNN-only endpoint will not be available.")
+
 # Load environment variables
 load_dotenv()
 
@@ -53,9 +61,12 @@ cors_origins = [
     'http://localhost',
     'http://localhost:3000',
     'http://localhost:5000',
+    'http://localhost:8000',
     'http://127.0.0.1',
     'http://127.0.0.1:3000',
     'http://127.0.0.1:5000',
+    'http://127.0.0.1:8000',
+    'null'
 ]
 
 CORS(app, resources={
@@ -90,11 +101,12 @@ class LayoutAnalyzer:
             
         try:
             # PubLayNet model for document layout detection
-            self.model = lp.Detectron2LayoutModel(
+            self.model = lp.AutoLayoutModel(
                 config_path="lp://PubLayNet/faster_rcnn_ResNest50_fpn_3x",
                 model_path="lp://PubLayNet/faster_rcnn_ResNest50_fpn_3x/model_final.pth",
-                extra_config=["MODEL.ROI_HEADS.SCORE_THRESH_TEST", 0.5],
-                label_map={0: "Text", 1: "Title", 2: "List", 3: "Table", 4: "Figure"}
+                label_map={0: "Text", 1: "Title", 2: "List", 3: "Table", 4: "Figure"},
+                device="cpu",
+                extra_config={"MODEL.ROI_HEADS.SCORE_THRESH_TEST": 0.5}
             )
             self.initialized = True
             print("✓ LayoutParser model loaded")
@@ -365,6 +377,17 @@ class OCREngine:
 layout_analyzer = LayoutAnalyzer()
 embedding_engine = SemanticEmbeddingEngine()
 ocr_engine = OCREngine()
+
+# Initialize CNN-only analyzer
+cnn_only_analyzer = None
+if HAS_CNN_ONLY:
+    try:
+        cnn_only_analyzer = CNNOnlyAnalyzer()
+    except Exception as e:
+        print(f"⚠ CNNOnlyAnalyzer initialization failed: {e}")
+        print("  CNN-only endpoint will not be available")
+else:
+    print("ℹ CNN-only model not imported. Skipping CNN-only analyzer initialization.")
 
 # Initialize advanced document scanner
 print("🔧 Initializing Advanced Document Scanner...")
@@ -953,6 +976,42 @@ def analyze():
         
         # Analyze layout
         result = layout_analyzer.analyze_layout(image_array)
+        
+        # Ensure success flag
+        if 'success' not in result:
+            result['success'] = True
+        
+        return jsonify(result)
+    
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/analyze/cnn', methods=['POST'])
+def analyze_cnn():
+    """
+    CNN-only analysis endpoint
+    Pure CNN-based layout analysis without GNN components
+    """
+    if not cnn_only_analyzer:
+        return jsonify({'success': False, 'error': 'CNN-only analyzer not available'}), 503
+    
+    try:
+        if 'image' not in request.files:
+            return jsonify({'success': False, 'error': 'No image provided'}), 400
+        
+        image_file = request.files['image']
+        image_bytes = image_file.read()
+        image_array = cv2.imdecode(
+            np.frombuffer(image_bytes, np.uint8),
+            cv2.IMREAD_COLOR
+        )
+        
+        if image_array is None:
+            return jsonify({'success': False, 'error': 'Invalid image'}), 400
+        
+        # Analyze with CNN-only model
+        result = cnn_only_analyzer.analyze_layout_cnn_only(image_array)
         
         # Ensure success flag
         if 'success' not in result:

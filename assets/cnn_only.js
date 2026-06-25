@@ -151,6 +151,14 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
+  // Download PDF button
+  const downloadPdfBtn = document.getElementById('download-pdf-btn');
+  if (downloadPdfBtn) {
+    downloadPdfBtn.addEventListener('click', () => {
+      downloadResultsPdf();
+    });
+  }
+
   // Comparison button
   const compareBtn = document.getElementById('compare-btn');
   if (compareBtn) {
@@ -159,6 +167,274 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 });
+
+function formatPercent(value) {
+  return `${Math.round(value * 100)}%`;
+}
+
+function formatReportDate() {
+  return new Date().toLocaleString([], {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
+}
+
+async function downloadResultsPdf() {
+  if (!currentAnalysisData) {
+    // Try to load results from sessionStorage (results page flow)
+    const saved = sessionStorage.getItem('cnnAnalysisResults');
+    if (saved) {
+      currentAnalysisData = JSON.parse(saved);
+    }
+
+    if (!currentAnalysisData) {
+      alert('Please run the analysis first before downloading the PDF report.');
+      return;
+    }
+  }
+
+  const { predictions = [], statistics = {}, model = 'CNN-only' } = unwrapData(currentAnalysisData);
+  const title = 'DOCUGRAPH CNN-Only Report';
+  const filename = `docugraph-cnn-report-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.pdf`;
+
+  // Ensure jsPDF is available (works with UMD build where constructor may be at window.jspdf.jsPDF)
+  async function ensureJsPDF() {
+    if (typeof window.jsPDF === 'function') return window.jsPDF;
+    if (window.jspdf && typeof window.jspdf.jsPDF === 'function') return window.jspdf.jsPDF;
+
+    // Try to load from CDN as a fallback
+    const src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
+    if (!document.querySelector(`script[src="${src}"]`)) {
+      await new Promise((resolve, reject) => {
+        const s = document.createElement('script');
+        s.src = src;
+        s.crossOrigin = 'anonymous';
+        s.onload = resolve;
+        s.onerror = () => reject(new Error('Failed to load jsPDF from CDN'));
+        document.head.appendChild(s);
+      }).catch((e) => {
+        console.warn('Could not load jsPDF dynamically:', e);
+      });
+    }
+
+    if (typeof window.jsPDF === 'function') return window.jsPDF;
+    if (window.jspdf && typeof window.jspdf.jsPDF === 'function') return window.jspdf.jsPDF;
+    return null;
+  }
+
+  const jsPDFCtor = await ensureJsPDF();
+  if (!jsPDFCtor) {
+    alert('PDF library (jsPDF) is not available. Please check network or include the library.');
+    return;
+  }
+
+  const doc = new jsPDFCtor({ unit: 'pt', format: 'letter' });
+  const margin = 40;
+  let y = margin;
+
+  doc.setFontSize(18);
+  doc.setTextColor('#1f2937');
+  doc.text(title, margin, y);
+
+  doc.setFontSize(10);
+  doc.setTextColor('#6b7280');
+  doc.text(`Generated: ${formatReportDate()}`, margin, y + 20);
+  doc.text(`Backend URL: ${window.BACKEND_URL}`, margin, y + 36);
+
+  y += 60;
+  doc.setFontSize(14);
+  doc.setTextColor('#111827');
+  doc.text('Analysis Summary', margin, y);
+
+  y += 20;
+  doc.setFontSize(10);
+  const summaryLines = [
+    `Analysis Mode: ${model}`,
+    `Regions Detected: ${statistics.total_blocks || 0}`,
+    `Average Confidence: ${formatPercent(statistics.avg_confidence || 0)}`,
+    `Headers: ${statistics.type_distribution?.Title || 0}`,
+    `Paragraphs: ${statistics.type_distribution?.Text || 0}`,
+    `Tables/Figures: ${(statistics.type_distribution?.Table || 0) + (statistics.type_distribution?.Figure || 0)}`
+  ];
+  summaryLines.forEach((line) => {
+    doc.text(line, margin, y);
+    y += 16;
+  });
+
+  y += 10;
+  doc.setDrawColor('#d1d5db');
+  doc.setLineWidth(0.5);
+  doc.line(margin, y, 555, y);
+  y += 20;
+
+  doc.setFontSize(14);
+  doc.setTextColor('#111827');
+  doc.text('Detected Regions', margin, y);
+  y += 18;
+
+  doc.setFontSize(9);
+  doc.setTextColor('#374151');
+  doc.text('Type', margin, y);
+  doc.text('Confidence', 180, y);
+  doc.text('BBox', 300, y);
+  y += 12;
+  doc.setDrawColor('#e5e7eb');
+  doc.line(margin, y, 555, y);
+  y += 10;
+
+  const maxRows = 18;
+  const regionRows = predictions.slice(0, maxRows);
+  regionRows.forEach((pred) => {
+    const type = pred.type || 'Unknown';
+    const confidence = formatPercent(pred.confidence || 0);
+    const bbox = Array.isArray(pred.bbox) ? pred.bbox.map((coord) => Math.round(coord)).join(', ') : 'N/A';
+
+    doc.text(type, margin, y);
+    doc.text(confidence, 180, y);
+    doc.text(bbox, 300, y);
+    y += 14;
+
+    if (y > 720) {
+      doc.addPage();
+      y = margin;
+    }
+  });
+
+  if (predictions.length > maxRows) {
+    doc.setTextColor('#6b7280');
+    doc.text(`...and ${predictions.length - maxRows} more regions`, margin, y + 10);
+  }
+
+  const textBlock = document.getElementById('scanned-text-container')?.innerText.trim();
+  if (textBlock) {
+    y += 28;
+    if (y > 720) {
+      doc.addPage();
+      y = margin;
+    }
+
+    doc.setFontSize(14);
+    doc.setTextColor('#111827');
+    doc.text('Extracted Text', margin, y);
+    y += 18;
+    doc.setFontSize(10);
+    doc.setTextColor('#374151');
+
+    const splitText = doc.splitTextToSize(textBlock, 515);
+    doc.text(splitText, margin, y);
+  }
+
+  // Try embed preview image (input image + bbox overlay) at the top of the report
+  try {
+    const previewData = await capturePreviewImage();
+    if (previewData) {
+      // Insert image at top of first page (scale to fit width)
+      const imgProps = doc.getImageProperties(previewData);
+      const pdfWidth = doc.internal.pageSize.getWidth() - margin * 2;
+      const aspect = imgProps.height / imgProps.width;
+      const imgHeight = Math.min(300, pdfWidth * aspect);
+
+      // Move existing content down if we're still on first page
+      // Create a new page to place the image at the top for simpler layout
+      doc.addPage();
+      doc.setPage(doc.getNumberOfPages());
+      doc.addImage(previewData, 'JPEG', margin, margin, pdfWidth, imgHeight);
+      // Return to page 1 to keep textual summary as before
+      doc.setPage(1);
+    }
+  } catch (e) {
+    console.warn('Could not embed preview image into PDF:', e);
+  }
+
+  doc.save(filename);
+}
+
+// Capture input image and draw bounding boxes onto a canvas, return dataURL
+async function capturePreviewImage() {
+  try {
+    // Prefer using the currentFile if available
+    let dataUrl;
+    if (currentFile) dataUrl = await fileToDataUrl(currentFile);
+    else {
+      const imgEl = document.getElementById('input-image');
+      if (imgEl && imgEl.src) dataUrl = imgEl.src;
+    }
+
+    if (!dataUrl) return null;
+
+    const img = await new Promise((res, rej) => {
+      const i = new Image();
+      i.onload = () => res(i);
+      i.onerror = rej;
+      i.src = dataUrl;
+    });
+
+    // Determine canvas size (limit to reasonable width)
+    const maxWidth = 1200;
+    const scale = Math.min(1, maxWidth / img.width);
+    const cw = Math.round(img.width * scale);
+    const ch = Math.round(img.height * scale);
+
+    const canvas = document.createElement('canvas');
+    canvas.width = cw;
+    canvas.height = ch;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, cw, ch);
+    ctx.drawImage(img, 0, 0, cw, ch);
+
+    // Draw bounding boxes if available
+    const raw = unwrapData(currentAnalysisData || {});
+    const preds = raw.predictions || [];
+    if (preds.length > 0) {
+      // Heuristic whether bbox are percent (0-100) or pixels
+      const maxCoord = preds.reduce((m, p) => Math.max(m, ...(p.bbox || [])), 0);
+      const usePercent = maxCoord <= 100;
+
+      preds.forEach((p) => {
+        const bbox = p.bbox || [0,0,0,0];
+        let x1 = bbox[0], y1 = bbox[1], x2 = bbox[2], y2 = bbox[3];
+        if (usePercent) {
+          x1 = (x1 / 100) * cw;
+          x2 = (x2 / 100) * cw;
+          y1 = (y1 / 100) * ch;
+          y2 = (y2 / 100) * ch;
+        } else {
+          const imgW = raw.statistics?.image_shape?.[1] || img.width;
+          const imgH = raw.statistics?.image_shape?.[0] || img.height;
+          const sx = cw / imgW;
+          const sy = ch / imgH;
+          x1 = x1 * sx; y1 = y1 * sy; x2 = x2 * sx; y2 = y2 * sy;
+        }
+
+        const w = x2 - x1;
+        const h = y2 - y1;
+        ctx.lineWidth = Math.max(2, Math.round(Math.min(cw, ch) / 200));
+        ctx.strokeStyle = 'rgba(124,58,237,0.95)';
+        ctx.fillStyle = 'rgba(124,58,237,0.08)';
+        ctx.strokeRect(x1, y1, w, h);
+        ctx.fillRect(x1, y1, w, h);
+
+        // Label
+        const label = (p.type || 'region') + ' ' + Math.round((p.confidence||0)*100) + '%';
+        ctx.fillStyle = 'rgba(0,0,0,0.7)';
+        ctx.font = '14px sans-serif';
+        const textW = ctx.measureText(label).width + 8;
+        ctx.fillRect(x1, Math.max(0, y1 - 20), textW, 18);
+        ctx.fillStyle = '#fff';
+        ctx.fillText(label, x1 + 4, Math.max(0, y1 - 6));
+      });
+    }
+
+    return canvas.toDataURL('image/jpeg', 0.9);
+  } catch (e) {
+    console.warn('capturePreviewImage failed', e);
+    return null;
+  }
+}
 
 // Handle file selection
 function handleFileSelected(file) {
@@ -192,16 +468,28 @@ async function performCNNAnalysis() {
   }, 500);
 
   try {
-    // Create fetch with 30-second timeout
+    // Create fetch with 60-second timeout (Detectron2 model loads on first run)
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 30000);
+    const timeoutId = setTimeout(() => controller.abort(), 60000);
 
     console.log('🔄 Sending to backend:', window.BACKEND_URL);
-    const response = await fetch(`${window.BACKEND_URL}/api/analyze`, {
-      method: 'POST',
-      body: formData,
-      signal: controller.signal
-    });
+    const endpoint = `${window.BACKEND_URL}/api/analyze/cnn`;
+    let response;
+    try {
+      response = await fetch(endpoint, {
+        method: 'POST',
+        body: formData,
+        signal: controller.signal
+      });
+    } catch (e) {
+      // Fallback to /api/analyze if /api/analyze/cnn doesn't exist
+      console.log('ℹ Endpoint /api/analyze/cnn not found, falling back to /api/analyze');
+      response = await fetch(`${window.BACKEND_URL}/api/analyze`, {
+        method: 'POST',
+        body: formData,
+        signal: controller.signal
+      });
+    }
 
     clearTimeout(timeoutId);
     clearInterval(progressInterval);
@@ -230,7 +518,8 @@ async function performCNNAnalysis() {
 
     // Update elapsed time
     const elapsed = Math.round((Date.now() - startTime) / 1000);
-    document.getElementById('analysis-time').textContent = (elapsed * 1000) + 'ms';
+    const analysisTimeEl = document.getElementById('analysis-time');
+    if (analysisTimeEl) analysisTimeEl.textContent = (elapsed * 1000) + 'ms';
 
     // Save to session storage for results page
     sessionStorage.setItem('cnnAnalysisResults', JSON.stringify(data));
@@ -242,7 +531,7 @@ async function performCNNAnalysis() {
     // Better error messaging
     let errorMsg = error.message;
     if (error.name === 'AbortError') {
-      errorMsg = 'Request timeout (>30s). Backend may be unavailable or processing is taking too long.';
+      errorMsg = 'Request timeout (>60s). The Detectron2 model is still loading or the backend is processing. Try again in a moment.';
     } else if (errorMsg.includes('Failed to fetch')) {
       errorMsg = `Cannot connect to backend at ${window.BACKEND_URL}. Make sure the backend server is running.`;
     }
@@ -279,8 +568,29 @@ function updateProgressStatus(step) {
   }
 }
 
+// ── FIX: unpack nested layout_analysis wrapper if present ──
+function unwrapData(raw) {
+  // If the backend returns the full CNNOnlyAnalyzer dict, pull the inner layout result
+  if (raw.layout_analysis) {
+    const inner = raw.layout_analysis;
+    return {
+      success:     inner.success,
+      predictions: inner.predictions || [],
+      statistics:  inner.statistics  || {},
+      model:       inner.model       || raw.model_variant || 'CNN-only',
+      feature_maps: inner.feature_maps || {},
+      shape_detection: raw.shape_detection,
+      features:        raw.features,
+      ocrText:         raw.ocrText || ''
+    };
+  }
+  // Already flat (direct endpoint response)
+  return raw;
+}
+
 // Display analysis results
-function displayAnalysisResults(data) {
+function displayAnalysisResults(rawData) {
+  const data = unwrapData(rawData);
   // Display input image
   if (currentFile) {
     const reader = new FileReader();
@@ -296,7 +606,11 @@ function displayAnalysisResults(data) {
 
   // Display bounding boxes
   if (data.predictions && data.predictions.length > 0) {
-    displayBoundingBoxes(data.predictions);
+    // Get image dimensions from statistics (needed to normalize pixel coords)
+    const imgShape = data.statistics.image_shape || [];
+    const imgH = imgShape[0] || 0;
+    const imgW = imgShape[1] || 0;
+    displayBoundingBoxes(data.predictions, imgW, imgH);
     const placeholder = document.getElementById('preview-placeholder');
     if (placeholder) placeholder.style.display = 'none';
   }
@@ -331,26 +645,52 @@ function displayAnalysisResults(data) {
   if (cnnFeaturesEl) cnnFeaturesEl.textContent = Object.keys(typeDistribution).length;
 }
 
-// Display bounding boxes
-function displayBoundingBoxes(predictions) {
+// Display bounding boxes with proper coordinate normalization
+function displayBoundingBoxes(predictions, imgW, imgH) {
   const container = document.getElementById('bbox-container');
   if (!container) return;
 
   container.innerHTML = '';
 
-  predictions.forEach((pred, idx) => {
+  // Determine if coords are already 0-100 (%) or raw pixels
+  // Heuristic: if max coordinate > 100, treat as pixels
+  const maxCoord = predictions.reduce((m, p) => Math.max(m, ...p.bbox), 0);
+  const usePercent = maxCoord <= 100;
+
+  predictions.forEach((pred) => {
     const bbox = document.createElement('div');
     const typeStr = (pred.type || 'para').toLowerCase();
     bbox.className = 'bbox ' + typeStr;
     
     const [x1, y1, x2, y2] = pred.bbox;
-    const width = x2 - x1;
-    const height = y2 - y1;
+    let left, top, width, height;
+
+    if (usePercent) {
+      // Already normalized to %
+      left = x1;
+      top = y1;
+      width = x2 - x1;
+      height = y2 - y1;
+    } else {
+      // Convert raw pixels to % using image dimensions
+      if (imgW > 0 && imgH > 0) {
+        left = (x1 / imgW) * 100;
+        top = (y1 / imgH) * 100;
+        width = ((x2 - x1) / imgW) * 100;
+        height = ((y2 - y1) / imgH) * 100;
+      } else {
+        // Fallback if dimensions not available
+        left = x1;
+        top = y1;
+        width = x2 - x1;
+        height = y2 - y1;
+      }
+    }
+
     const confidence = pred.confidence || 0;
 
-    // Apply coordinates as percentages
-    bbox.style.left = x1 + '%';
-    bbox.style.top = y1 + '%';
+    bbox.style.left = left + '%';
+    bbox.style.top = top + '%';
     bbox.style.width = width + '%';
     bbox.style.height = height + '%';
 
@@ -363,37 +703,48 @@ function displayBoundingBoxes(predictions) {
 async function performOCR() {
   if (!currentAnalysisData) return;
 
-  document.getElementById('scanned-text-container').innerHTML = '<p style="text-align:center;">Extracting text...</p>';
+  const container = document.getElementById('scanned-text-container');
+  if (container) container.innerHTML = '<p style="text-align:center; color:var(--ink-500);">Extracting text with Tesseract…</p>';
 
   try {
-    // Use Tesseract.js for OCR
-    if (typeof Tesseract !== 'undefined') {
-      const { createWorker } = Tesseract;
-      const worker = await createWorker();
-
-      // Get image from current file
-      const reader = new FileReader();
-      reader.onload = async (e) => {
-        const result = await worker.recognize(e.target.result);
-        const extractedText = result.data.text;
-
-        document.getElementById('scanned-text-container').textContent = extractedText;
-        await worker.terminate();
-
-        // Save OCR result
-        currentAnalysisData.ocrText = extractedText;
-
-        showState('ocr');
-      };
-      reader.readAsDataURL(currentFile);
-    } else {
+    if (typeof Tesseract === 'undefined') {
       throw new Error('Tesseract.js not loaded');
     }
+
+    const imageDataUrl = await fileToDataUrl(currentFile);
+
+    const { createWorker } = Tesseract;
+    const worker = await createWorker('eng');
+
+    const result = await worker.recognize(imageDataUrl);
+    await worker.terminate();
+
+    const extractedText = result.data.text || '(No text detected)';
+
+    if (container) {
+      container.textContent = extractedText;
+    }
+    currentAnalysisData.ocrText = extractedText;
+
+    // ── now switch state, after everything is done ──
+    showState('ocr');
+
   } catch (error) {
     console.error('OCR error:', error);
-    document.getElementById('scanned-text-container').innerHTML = 
-      '<p style="color:var(--red-700);">Error during OCR: ' + error.message + '</p>';
+    if (container) {
+      container.innerHTML = '<p style="color:var(--red-700);">Error during OCR: ' + error.message + '</p>';
+    }
   }
+}
+
+// Helper: FileReader as a Promise
+function fileToDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload  = (e) => resolve(e.target.result);
+    reader.onerror = ()  => reject(new Error('Could not read file'));
+    reader.readAsDataURL(file);
+  });
 }
 
 // ===== Camera Functionality =====
@@ -478,6 +829,17 @@ if (window.location.pathname.includes('results_cnn.html')) {
     if (savedResults) {
       const data = JSON.parse(savedResults);
       loadResultsPage(data);
+    }
+
+    // Wire download button on results page
+    const downloadResultsBtn = document.getElementById('download-results-btn');
+    if (downloadResultsBtn) {
+      downloadResultsBtn.addEventListener('click', () => {
+        // Ensure currentAnalysisData is populated for the PDF generator
+        const saved = sessionStorage.getItem('cnnAnalysisResults');
+        if (saved) currentAnalysisData = JSON.parse(saved);
+        downloadResultsPdf();
+      });
     }
   });
 }
