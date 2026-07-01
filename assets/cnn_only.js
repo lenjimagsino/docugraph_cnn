@@ -1141,9 +1141,14 @@ function displayAnalysisResults(rawData) {
   const headerCountEl = document.getElementById('header-count');
   const paraCountEl = document.getElementById('para-count');
   const tableCountEl = document.getElementById('table-count');
+  const readingOrderCountEl = document.getElementById('reading-order-count');
+  const layoutAccuracyEl = document.getElementById('layout-accuracy');
   const cnnRegionsEl = document.getElementById('cnn-regions');
   const cnnAvgConfEl = document.getElementById('cnn-avg-conf');
   const cnnFeaturesEl = document.getElementById('cnn-features');
+
+  const readingOrder = data.features?.connectivity_features?.reading_order || [];
+  const layoutAccuracy = stats.layout_accuracy || 0;
 
   if (regionCountEl) regionCountEl.textContent = totalBlocks;
   if (confScoreEl) confScoreEl.textContent = Math.round(avgConf * 100) + '%';
@@ -1151,6 +1156,8 @@ function displayAnalysisResults(rawData) {
   if (headerCountEl) headerCountEl.textContent = typeDistribution['Title'] || 0;
   if (paraCountEl) paraCountEl.textContent = typeDistribution['Text'] || 0;
   if (tableCountEl) tableCountEl.textContent = (typeDistribution['Table'] || 0) + (typeDistribution['Figure'] || 0);
+  if (readingOrderCountEl) readingOrderCountEl.textContent = readingOrder.length || 0;
+  if (layoutAccuracyEl) layoutAccuracyEl.textContent = formatPercent(layoutAccuracy);
 
   // Update metrics panel
   if (cnnRegionsEl) cnnRegionsEl.textContent = totalBlocks;
@@ -1568,6 +1575,9 @@ function loadResultsPage(data) {
   document.getElementById('header-count').textContent = typeDistribution['Title'] || 0;
   document.getElementById('para-count').textContent = typeDistribution['Text'] || 0;
   document.getElementById('table-count').textContent = (typeDistribution['Table'] || 0) + (typeDistribution['Figure'] || 0);
+  document.getElementById('layout-accuracy').textContent = formatPercent(stats.layout_accuracy || 0);
+  const readingOrder = data.features?.connectivity_features?.reading_order || [];
+  document.getElementById('reading-order-count').textContent = readingOrder.length || 0;
 
   // Display extracted text
   if (data.ocrText) {

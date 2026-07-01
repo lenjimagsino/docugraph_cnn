@@ -107,6 +107,7 @@ class CNNOnlyLayoutAnalyzer:
                 'statistics': {
                     'total_blocks': len(cnn_predictions),
                     'avg_confidence': np.mean([p['confidence'] for p in cnn_predictions]) if cnn_predictions else 0,
+                    'layout_accuracy': self._calculate_layout_accuracy(cnn_predictions),
                     'type_distribution': self._get_type_distribution(cnn_predictions),
                     'image_shape': list(image_array.shape)
                 }
@@ -162,6 +163,36 @@ class CNNOnlyLayoutAnalyzer:
             block_type = pred['type']
             distribution[block_type] = distribution.get(block_type, 0) + 1
         return distribution
+    
+    def _calculate_layout_accuracy(self, predictions: List[Dict]) -> float:
+        """
+        Calculate layout accuracy as a function of:
+        - Average confidence of detected regions
+        - Region count (more regions = better detection)
+        - Confidence distribution variance
+        
+        Returns: accuracy score 0-1
+        """
+        if not predictions:
+            return 0.0
+        
+        # Get confidence scores
+        confidences = [p.get('confidence', 0.5) for p in predictions]
+        avg_conf = np.mean(confidences) if confidences else 0.5
+        
+        # Region count factor (logarithmic scale, capped)
+        region_count = len(predictions)
+        region_factor = min(1.0, np.log(region_count + 1) / 4.0)  # Scales 0-1 with diminishing returns
+        
+        # Confidence stability (lower variance = more stable)
+        conf_std = np.std(confidences) if len(confidences) > 1 else 0.0
+        stability_factor = 1.0 - (conf_std * 0.3)  # Down-weight high variance
+        stability_factor = max(0.5, stability_factor)
+        
+        # Combine factors: average confidence + region detection boost + stability
+        layout_accuracy = (avg_conf * 0.6 + region_factor * 0.25 + stability_factor * 0.15)
+        
+        return float(min(1.0, max(0.0, layout_accuracy)))
     
     @staticmethod
     def _normalize_bbox(x1: float, y1: float, x2: float, y2: float, img_w: int, img_h: int) -> List[float]:
@@ -284,6 +315,7 @@ class CNNOnlyLayoutAnalyzer:
                 'statistics': {
                     'total_blocks': len(predictions),
                     'avg_confidence': float(avg_confidence),
+                    'layout_accuracy': self._calculate_layout_accuracy(predictions),
                     'type_distribution': {'Text': len(predictions)},
                     'image_shape': list(image_array.shape),
                     'fallback': True,

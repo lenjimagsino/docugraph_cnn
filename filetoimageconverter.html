@@ -7,6 +7,8 @@
   <link rel="icon" type="image/png" href="assets/logo.png">
   <link rel="stylesheet" href="assets/style.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mammoth@1.6.0/mammoth.browser.min.js"></script>
   <style>
     body { background: var(--white); touch-action: manipulation; }
     .converter-head { background: rgba(42,168,74,0.08); border: 1px solid rgba(42,168,74,0.15); border-radius: 24px; padding: 30px 28px; margin-bottom: 28px; }
@@ -93,7 +95,7 @@
     <div class="wrap">
       <div class="converter-head">
         <h1>File to Image Converter</h1>
-        <p>Upload PDFs or images, choose pages, and export images ready for analysis with DOCUGRAPH.</p>
+        <p>Upload PDFs, Word documents, or images, choose pages, and export images ready for analysis with DOCUGRAPH.</p>
         <p style="margin-top: 14px; font-size: 0.95rem; color: var(--ink-700);">
           Already converted? <a href="try_cnn.html" style="color: var(--green-700); text-decoration: underline;">Then start analyze!</a>
         </p>
@@ -101,11 +103,11 @@
 
       <div class="panel">
         <div id="dropzone">
-          <input type="file" id="file-input" multiple accept=".pdf,.png,.jpg,.jpeg,.gif,.bmp,.webp,.tiff" />
+          <input type="file" id="file-input" multiple accept=".pdf,.doc,.docx,.png,.jpg,.jpeg,.gif,.bmp,.webp,.tiff" />
           <div class="dz-icon">📂</div>
           <h2>Drop files here</h2>
           <p>or click to browse your device</p>
-          <p class="accept-hint">PDF · PNG · JPG · WebP · GIF · BMP · TIFF · Max 100 MB per file</p>
+          <p class="accept-hint">PDF · DOCX · DOC · PNG · JPG · WebP · GIF · BMP · TIFF · Max 100 MB per file</p>
         </div>
 
         <div class="options-grid" id="options-panel">
@@ -206,16 +208,157 @@
     function addFiles(newFiles) {
       newFiles.forEach(f => {
         if (files.some(x => x.file.name === f.name && x.file.size === f.size)) return;
-        const entry = { id: Date.now() + Math.random(), file: f, status: 'pending', pdfDoc: null, numPages: 0, selectedPages: new Set(), thumbsRendered: false };
+        const entry = { id: Date.now() + Math.random(), file: f, status: 'pending', pdfDoc: null, numPages: 0, selectedPages: new Set(), thumbsRendered: false, docContent: null };
         files.push(entry);
         if (isPdf(f)) loadPdfMeta(entry);
+        else if (isDoc(f)) loadDocMeta(entry);
         else { entry.numPages = 1; entry.selectedPages.add(1); entry.status = 'ready'; }
       });
       renderQueue();
       showPanels();
     }
 
+    async function loadDocMeta(entry) {
+      setEntryStatus(entry, 'loading');
+      try {
+        if (!window.mammoth) {
+          throw new Error('Mammoth.js library not loaded');
+        }
+        const ab = await entry.file.arrayBuffer();
+        const result = await mammoth.convertToHtml({ arrayBuffer: ab });
+        entry.docContent = result.value;
+        
+        // Strip out all inline styles to have complete control
+        const tempDiv = document.createElement('div');
+        tempDiv.innerHTML = entry.docContent;
+        
+        // Remove all inline style attributes
+        tempDiv.querySelectorAll('*').forEach(el => {
+          el.removeAttribute('style');
+        });
+        
+        entry.docContent = tempDiv.innerHTML;
+        
+        // Calculate number of pages based on content height
+        const numPages = await calculateDocPages(entry.docContent);
+        entry.numPages = numPages;
+        
+        for (let i = 1; i <= numPages; i++) {
+          entry.selectedPages.add(i);
+        }
+        
+        setEntryStatus(entry, 'ready');
+        updateBadge(entry);
+        updateSelInfo(entry);
+        renderQueue();
+        showPanels();
+      } catch (e) { 
+        console.error('Doc loading error:', e);
+        setEntryStatus(entry, 'error');
+        updateBadge(entry);
+        renderQueue();
+        showToast(`Failed to load ${entry.file.name}: ${e.message}`);
+      }
+    }
+
+    function applyDocumentStyles(container) {
+      // Apply professional document styling to match Word defaults
+      container.style.cssText = 'font-family: "Calibri", "Segoe UI", Arial, sans-serif !important; font-size: 11pt !important; line-height: 1.0 !important; color: #000 !important; text-align: left !important; margin: 0 !important; padding: 0 !important;';
+      
+      // Reset ALL elements first with !important
+      container.querySelectorAll('*').forEach(el => {
+        el.style.cssText += 'margin: 0 !important; padding: 0 !important; line-height: 1.0 !important;';
+      });
+      
+      // Style all paragraphs
+      const paragraphs = container.querySelectorAll('p');
+      paragraphs.forEach((p, idx) => {
+        p.style.cssText = 'margin: 0 0 4pt 0 !important; padding: 0 !important; line-height: 1.0 !important; font-size: 11pt !important; font-family: "Calibri", "Segoe UI", Arial, sans-serif !important; text-align: left !important;';
+      });
+      
+      // Style headings
+      const headings = container.querySelectorAll('h1, h2, h3, h4, h5, h6');
+      headings.forEach((h) => {
+        h.style.cssText = 'font-weight: 700 !important; margin: 4pt 0 !important; padding: 0 !important; line-height: 1.0 !important; font-size: 11pt !important; font-family: "Calibri", "Segoe UI", Arial, sans-serif !important;';
+      });
+      
+      // Style lists
+      const lists = container.querySelectorAll('ul, ol');
+      lists.forEach(list => {
+        list.style.cssText = 'margin: 0 0 4pt 20pt !important; padding: 0 !important; list-style-position: outside !important;';
+      });
+      
+      const listItems = container.querySelectorAll('li');
+      listItems.forEach(li => {
+        li.style.cssText = 'margin: 0 0 2pt 0 !important; padding: 0 !important; line-height: 1.0 !important; font-size: 11pt !important;';
+      });
+      
+      // Style tables
+      const tables = container.querySelectorAll('table');
+      tables.forEach(table => {
+        table.style.cssText = 'border-collapse: collapse !important; margin: 4pt 0 !important; width: 100% !important; padding: 0 !important;';
+        
+        const cells = table.querySelectorAll('td, th');
+        cells.forEach(cell => {
+          cell.style.cssText = 'border: 1px solid #666 !important; padding: 3pt !important; vertical-align: top !important; line-height: 1.0 !important; font-size: 11pt !important; margin: 0 !important;';
+        });
+      });
+      
+      // Style bold and italic
+      const bolds = container.querySelectorAll('b, strong');
+      bolds.forEach(b => {
+        b.style.cssText = 'font-weight: 700 !important; margin: 0 !important; padding: 0 !important;';
+      });
+      
+      const italics = container.querySelectorAll('i, em');
+      italics.forEach(i => {
+        i.style.cssText = 'font-style: italic !important; margin: 0 !important; padding: 0 !important;';
+      });
+      
+      // Set background
+      container.style.backgroundColor = '#ffffff';
+      
+      // Final aggressive cleanup for any remaining spacing issues
+      container.querySelectorAll('div, span, article, section').forEach(el => {
+        el.style.cssText = 'margin: 0 !important; padding: 0 !important; line-height: inherit !important;';
+      });
+    }
+
+    async function calculateDocPages(html) {
+      return new Promise((resolve) => {
+        const container = document.createElement('div');
+        container.innerHTML = html;
+        applyDocumentStyles(container);
+        container.style.position = 'absolute';
+        container.style.left = '-99999px';
+        container.style.top = '0';
+        container.style.width = '800px';
+        container.style.backgroundColor = '#ffffff';
+        container.style.padding = '40px';
+        container.style.pointerEvents = 'none';
+        
+        document.body.appendChild(container);
+        
+        // Give content time to fully render before measuring
+        setTimeout(() => {
+          // Measure content height accurately
+          const height = container.scrollHeight;
+          
+          document.body.removeChild(container);
+          
+          // US Letter page: 8.5 x 11 inches = 816 x 1056px at 96dpi
+          // Use 950px per page to account for formatting and spacing variations
+          const pageHeight = 950;
+          
+          // Calculate pages based on total height
+          const numPages = Math.max(1, Math.ceil(height / pageHeight));
+          resolve(numPages);
+        }, 200);
+      });
+    }
+
     function isPdf(f) { return f.name.toLowerCase().endsWith('.pdf'); }
+    function isDoc(f) { const n = f.name.toLowerCase(); return n.endsWith('.docx') || n.endsWith('.doc'); }
 
     async function loadPdfMeta(entry) {
       setEntryStatus(entry, 'loading');
@@ -244,8 +387,8 @@
     function updateConvertVisibility() {
       const convertBtn = document.getElementById('btn-convert');
       if (!convertBtn) return;
-      const allSinglePage = files.length > 0 && files.every(entry => entry.numPages === 1);
-      convertBtn.style.display = allSinglePage ? 'none' : '';
+      // Always show the convert button - allow batch conversion of PDFs, docs, and images
+      convertBtn.style.display = '';
     }
 
     function renderQueue() {
@@ -257,8 +400,9 @@
         const card = document.createElement('div');
         card.className = 'file-card';
         card.dataset.id = entry.id;
-        const pickerClasses = isPdf(entry.file) && entry.numPages === 1 ? 'page-picker open' : 'page-picker';
-        const singlePageButton = entry.numPages === 1 ? `<div class="single-file-actions"><button class="btn btn-ghost" type="button" onclick="downloadPageOnly(event,'${entry.id}',1)">Download page</button></div>` : '';
+        const pickerClasses = (isPdf(entry.file) || (isDoc(entry.file) && entry.numPages > 1)) && entry.numPages === 1 ? 'page-picker open' : 'page-picker';
+        // Only show quick download button if this is the only file in the queue
+        const singlePageButton = entry.numPages === 1 && files.length === 1 ? `<div class="single-file-actions"><button class="btn btn-ghost" type="button" onclick="downloadPageOnly(event,'${entry.id}',1)">Download ${isDoc(entry.file) ? 'document' : 'page'}</button></div>` : '';
         card.innerHTML = `
           <div class="file-card-header" onclick="togglePicker('${entry.id}')">
             <div class="fc-thumb" id="fcthumb-${entry.id}">${getIcon(entry.file.name)}</div>
@@ -271,7 +415,7 @@
             <button class="fc-remove" onclick="removeEntry(event,'${entry.id}')" title="Remove">×</button>
           </div>
           ${singlePageButton}
-          <div class="${pickerClasses}" id="picker-${entry.id}">${isPdf(entry.file) ? buildPickerInner(entry) : buildImagePickerInner(entry)}</div>
+          <div class="${pickerClasses}" id="picker-${entry.id}">${(isPdf(entry.file) || (isDoc(entry.file) && entry.numPages > 1)) ? buildPickerInner(entry) : buildDocOrImagePickerInner(entry)}</div>
         `;
         c.appendChild(card);
       });
@@ -280,8 +424,8 @@
     }
 
     function buildPickerInner(entry) {
-      if (entry.status === 'loading') return `<div style="padding:1rem;font-size:0.85rem;color:var(--ink-500)">⏳ Loading PDF pages…</div>`;
-      if (entry.status === 'error') return `<div style="padding:1rem;font-size:0.85rem;color:#b91c1c">⚠ Failed to load PDF.</div>`;
+      if (entry.status === 'loading') return `<div style="padding:1rem;font-size:0.85rem;color:var(--ink-500)">⏳ Loading ${isDoc(entry.file) ? 'document' : 'PDF'} pages…</div>`;
+      if (entry.status === 'error') return `<div style="padding:1rem;font-size:0.85rem;color:#b91c1c">⚠ Failed to load ${isDoc(entry.file) ? 'document' : 'PDF'}.</div>`;
       return `
         <div class="pp-toolbar">
           <span class="pp-toolbar-label">Select pages</span>
@@ -301,16 +445,19 @@
           </div>
           <small style="color:var(--ink-500);">Use comma-separated pages or ranges to select exactly the pages you want.</small>
         </div>
-        ${entry.numPages === 1 ? `<div class="single-file-actions"><button class="btn btn-ghost" type="button" onclick="downloadPageOnly(event,'${entry.id}',1)">Download page</button></div>` : ''}
         <div class="pp-grid" id="pgrid-${entry.id}">${buildPageThumbs(entry)}</div>
       `;
     }
 
-    function buildImagePickerInner(entry) {
+    function buildDocOrImagePickerInner(entry) {
+      const isDocFile = isDoc(entry.file);
+      const desc = isDocFile 
+        ? 'Word documents are converted as single-page images. The entire document will be rendered into one image.'
+        : 'This is a single-page image — it will be converted as-is.';
       return `
         <div style="padding:0.85rem 1rem;color:var(--ink-600);">
-          <div>This is a single-page image — it will be converted as-is.</div>
-          <button class="btn btn-ghost" type="button" onclick="downloadPageOnly(event,'${entry.id}',1)">Download converted file</button>
+          <div>${desc}</div>
+          <button class="btn btn-ghost" type="button" onclick="downloadPageOnly(event,'${entry.id}',1)">Download ${isDocFile ? 'document' : 'converted file'}</button>
         </div>
       `;
     }
@@ -339,6 +486,7 @@
           entry.thumbsRendered = true;
           renderPageThumbs(entry);
         }
+        // For docs, we don't render thumbnails, just show the page grid
       }
     }
 
@@ -451,7 +599,7 @@
       if (entry.status === 'converting') return 'Converting…';
       if (entry.status === 'done') return 'Done ✓';
       if (entry.status === 'error') return 'Error';
-      if (isPdf(entry.file) && entry.numPages > 0) return entry.selectedPages.size + ' pages';
+      if ((isPdf(entry.file) || isDoc(entry.file)) && entry.numPages > 0) return entry.selectedPages.size + ' pages';
       return 'Ready';
     }
 
@@ -500,14 +648,24 @@
         setEntryStatus(entry, 'converting');
         updateBadge(entry);
         try {
-          const blobs = isPdf(entry.file)
-            ? await convertPdf(entry, { scale, quality, bg }, n => { donePages += n; setProgress((donePages / totalPages) * 100, `${donePages} / ${totalPages} pages…`); })
-            : await convertImage(entry.file, { scale, quality, bg });
+          let blobs;
+          if (isPdf(entry.file)) {
+            blobs = await convertPdf(entry, { scale, quality, bg }, n => { donePages += n; setProgress((donePages / totalPages) * 100, `${donePages} / ${totalPages} pages…`); });
+          } else if (isDoc(entry.file)) {
+            blobs = await convertDoc(entry, { scale, quality, bg });
+            donePages += entry.selectedPages.size;
+            setProgress((donePages / totalPages) * 100, `${donePages} / ${totalPages} pages…`);
+          } else {
+            blobs = await convertImage(entry.file, { scale, quality, bg });
+            donePages += 1;
+            setProgress((donePages / totalPages) * 100, `${donePages} / ${totalPages} pages…`);
+          }
           blobs.forEach(b => resultBlobs.push(b));
           appendResults(blobs);
           setEntryStatus(entry, 'done');
         } catch (err) {
           setEntryStatus(entry, 'error');
+          showToast(`Error processing ${entry.file.name}: ${err.message || err}`);
           console.error(err);
         }
         updateBadge(entry);
@@ -542,6 +700,99 @@
       return blobs;
     }
 
+    async function convertDoc(entry, { scale, quality, bg }) {
+      const baseName = entry.file.name.replace(/\.(doc|docx)$/i, '');
+      const html = entry.docContent ? entry.docContent : '<div>Could not extract document content.</div>';
+      const blobs = [];
+      
+      // Create a container to measure content
+      const measureContainer = document.createElement('div');
+      measureContainer.innerHTML = html;
+      applyDocumentStyles(measureContainer);
+      measureContainer.style.position = 'absolute';
+      measureContainer.style.left = '-99999px';
+      measureContainer.style.top = '0';
+      measureContainer.style.width = '800px';
+      measureContainer.style.backgroundColor = '#ffffff';
+      measureContainer.style.padding = '40px';
+      measureContainer.style.pointerEvents = 'none';
+      measureContainer.style.overflow = 'visible';
+      
+      document.body.appendChild(measureContainer);
+      
+      // Allow enough time for complex formatting to render
+      await new Promise(resolve => setTimeout(resolve, 200));
+      
+      const totalHeight = measureContainer.scrollHeight;
+      const pageHeight = 950; // Conservative height accounting for formatting variations
+      const numPages = Math.max(1, Math.ceil(totalHeight / pageHeight));
+      
+      document.body.removeChild(measureContainer);
+      
+      try {
+        for (let pageNum = 1; pageNum <= numPages; pageNum++) {
+          const wrapper = document.createElement('div');
+          wrapper.style.position = 'fixed';
+          wrapper.style.left = '0';
+          wrapper.style.top = '0';
+          wrapper.style.width = '800px';
+          wrapper.style.height = pageHeight + 'px';
+          wrapper.style.backgroundColor = '#ffffff';
+          wrapper.style.overflow = 'hidden';
+          wrapper.style.zIndex = '-99999';
+          wrapper.style.pointerEvents = 'none';
+          
+          const container = document.createElement('div');
+          container.innerHTML = html;
+          applyDocumentStyles(container);
+          container.style.padding = '40px';
+          container.style.width = '100%';
+          container.style.boxSizing = 'border-box';
+          
+          // Position content to show only the current page
+          const offset = (pageNum - 1) * pageHeight;
+          container.style.position = 'absolute';
+          container.style.top = (-offset) + 'px';
+          container.style.left = '0';
+          
+          wrapper.appendChild(container);
+          document.body.appendChild(wrapper);
+          
+          // Allow time for layout to render before capturing
+          await new Promise(resolve => setTimeout(resolve, 200));
+          
+          const canvas = await html2canvas(wrapper, { 
+            scale: 1,
+            backgroundColor: '#ffffff',
+            logging: false,
+            useCORS: true,
+            allowTaint: true,
+            width: 800,
+            height: pageHeight,
+            windowHeight: pageHeight
+          });
+          
+          document.body.removeChild(wrapper);
+          
+          // Apply scale
+          const finalCanvas = document.createElement('canvas');
+          finalCanvas.width = Math.round(800 * scale);
+          finalCanvas.height = Math.round(pageHeight * scale);
+          const ctx = finalCanvas.getContext('2d');
+          ctx.scale(scale, scale);
+          ctx.drawImage(canvas, 0, 0);
+          
+          const blob = await canvasToBlob(finalCanvas, quality);
+          blobs.push({ blob, name: `${baseName}_p${pageNum}.${outputFmt}` });
+        }
+        
+        return blobs;
+      } catch (e) {
+        console.error('Doc conversion error:', e);
+        throw new Error(`Failed to convert document: ${e.message}`);
+      }
+    }
+
     async function convertImage(file, { scale, quality, bg }) {
       return new Promise((resolve, reject) => {
         const img = new Image();
@@ -574,13 +825,21 @@
       const scale = parseFloat(document.getElementById('opt-scale').value);
       const quality = parseFloat(document.getElementById('opt-quality').value);
       const bg = document.getElementById('opt-bg').value;
-      if (isPdf(entry.file)) {
-        const blob = await renderPdfPageBlob(entry, pageNum, { scale, quality, bg });
-        const name = `${entry.file.name.replace(/\.pdf$/i, '')}_p${pageNum}.${outputFmt}`;
-        downloadBlob(blob, name);
-      } else {
-        const [result] = await convertImage(entry.file, { scale, quality, bg });
-        downloadBlob(result.blob, result.name);
+      try {
+        if (isPdf(entry.file)) {
+          const blob = await renderPdfPageBlob(entry, pageNum, { scale, quality, bg });
+          const name = `${entry.file.name.replace(/\.pdf$/i, '')}_p${pageNum}.${outputFmt}`;
+          downloadBlob(blob, name);
+        } else if (isDoc(entry.file)) {
+          const [result] = await convertDoc(entry, { scale, quality, bg });
+          downloadBlob(result.blob, result.name);
+        } else {
+          const [result] = await convertImage(entry.file, { scale, quality, bg });
+          downloadBlob(result.blob, result.name);
+        }
+      } catch (err) {
+        showToast(`Error: ${err.message || err}`);
+        console.error(err);
       }
     }
 
@@ -640,6 +899,7 @@
     function getIcon(name) {
       const ext = name.split('.').pop().toLowerCase();
       if (ext === 'pdf') return '📕';
+      if (['doc','docx'].includes(ext)) return '📄';
       if (['png','jpg','jpeg','webp','gif','bmp','tiff'].includes(ext)) return '🖼';
       return '📄';
     }
